@@ -1475,6 +1475,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hostname"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617aaa3557aef3810a6369d0a99fac8a080891b68bd9f9812a1eeda0c0730cbd"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "windows-link",
+]
+
+[[package]]
 name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2225,6 +2236,7 @@ dependencies = [
  "futures-util",
  "hkdf 0.12.4",
  "hmac 0.12.1",
+ "hostname",
  "image",
  "jsonwebtoken",
  "moka",

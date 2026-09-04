@@ -31,6 +31,11 @@ async fn responses_identify_build_and_instance() {
         .and_then(|value| value.to_str().ok())
         .expect("x-openvk-instance");
     assert!(!instance.is_empty());
+    assert!(
+        instance
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':' | '+'))
+    );
     assert_eq!(
         second
             .headers()
@@ -42,7 +47,7 @@ async fn responses_identify_build_and_instance() {
 }
 
 #[tokio::test]
-async fn separate_processes_get_distinct_instance_ids() {
+async fn processes_on_the_same_host_share_instance_id() {
     let (base_a, _) = start_app().await;
     let (base_b, _) = start_app().await;
     let client = reqwest::Client::new();
@@ -70,5 +75,5 @@ async fn separate_processes_get_distinct_instance_ids() {
         .unwrap()
         .to_owned();
 
-    assert_ne!(instance_a, instance_b);
+    assert_eq!(instance_a, instance_b);
 }

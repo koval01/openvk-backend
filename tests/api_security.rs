@@ -60,6 +60,30 @@ async fn cors_preflight_allows_the_configured_origin() {
 }
 
 #[tokio::test]
+async fn cors_preflight_allows_localhost_as_loopback_alias() {
+    let (base, _) = start_app().await;
+    let response = reqwest::Client::new()
+        .request(reqwest::Method::OPTIONS, format!("{base}/api/v1/feed"))
+        .header("Origin", "http://localhost:5173")
+        .header("Access-Control-Request-Method", "GET")
+        .header(
+            "Access-Control-Request-Headers",
+            "authorization,x-csrf-token",
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("access-control-allow-origin")
+            .and_then(|value| value.to_str().ok()),
+        Some("http://localhost:5173")
+    );
+}
+
+#[tokio::test]
 async fn mutating_requests_need_a_csrf_token() {
     let (base, _) = start_app().await;
     let response = reqwest::Client::new()

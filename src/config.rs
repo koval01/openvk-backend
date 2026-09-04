@@ -79,12 +79,13 @@ impl Config {
             redis_url: env_or("REDIS_URL", "redis://127.0.0.1:6379/"),
             jwt_secret: env_or("JWT_SECRET", "dev-only-change-me-to-a-long-random-string"),
             data_key: env_or("DATA_KEY", "openvk-dev-data-key-change-me"),
-            cors_origins: env_or("CORS_ORIGIN", "http://127.0.0.1:5173")
-                .split(',')
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .collect(),
+            cors_origins: expand_loopback_origins(
+                env_or("CORS_ORIGIN", "http://127.0.0.1:5173")
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned),
+            ),
             db_max_connections: env_parse("DB_MAX_CONNECTIONS", 32_u32)?,
             db_min_connections: env_parse("DB_MIN_CONNECTIONS", 2_u32)?,
             rate_limit_per_minute: NonZeroU32::new(env_parse("RATE_LIMIT_PER_MINUTE", 120_u32)?)
@@ -114,6 +115,38 @@ impl Config {
 
 fn env_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
+}
+
+/// `localhost`, `127.0.0.1`, and `[::1]` are the same browser machine.
+/// Browsers send the host as typed, so a CORS list with only 127.0.0.1
+/// would 403 logins from http://localhost:5173.
+fn expand_loopback_origins(origins: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut expanded = Vec::new();
+    for origin in origins {
+        for alias in loopback_aliases(&origin) {
+            if !expanded.contains(&alias) {
+                expanded.push(alias);
+            }
+        }
+    }
+    expanded
+}
+
+fn loopback_aliases(origin: &str) -> Vec<String> {
+    const LOOPBACK_HOSTS: [&str; 3] = ["127.0.0.1", "localhost", "[::1]"];
+    for scheme in ["http://", "https://"] {
+        for host in LOOPBACK_HOSTS {
+            let prefix = format!("{scheme}{host}");
+            if origin == prefix || origin.starts_with(&format!("{prefix}:")) {
+                let suffix = &origin[prefix.len()..];
+                return LOOPBACK_HOSTS
+                    .into_iter()
+                    .map(|alias| format!("{scheme}{alias}{suffix}"))
+                    .collect();
+            }
+        }
+    }
+    vec![origin.to_owned()]
 }
 
 fn env_optional(key: &str) -> Option<String> {
@@ -187,5 +220,14 @@ mod tests {
     fn storage_backend_equality() {
         assert_eq!(StorageBackend::R2, StorageBackend::R2);
         assert_ne!(StorageBackend::R2, StorageBackend::Disk);
+    }
+
+    #[test]
+    fn loopback_cors_aliases_localhost() {
+        let expanded = super::expand_loopback_origins(["http://127.0.0.1:5173".to_owned()]);
+        assert!(expanded.contains(&"http://127.0.0.1:5173".to_owned()));
+        assert!(expanded.contains(&"http://localhost:5173".to_owned()));
+        assert!(expanded.contains(&"http://[::1]:5173".to_owned()));
+        assert!(!expanded.iter().any(|origin| origin.contains("evil")));
     }
 }

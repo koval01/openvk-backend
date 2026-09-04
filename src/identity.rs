@@ -1,8 +1,8 @@
 //! Process identity stamped on every HTTP response.
 //!
 //! `x-openvk-build` is the short git commit (GitHub-style, e.g. `a229ef3`).
-//! `x-openvk-instance` identifies the process that handled the request so
-//! replicas can be told apart. Set `OPENVK_INSTANCE_ID` to pin it (pod name).
+//! `x-openvk-instance` is the machine hostname so replicas on different hosts
+//! can be told apart. Set `OPENVK_INSTANCE_ID` to pin it (pod name).
 
 use axum::http::{HeaderName, HeaderValue};
 use uuid::Uuid;
@@ -42,11 +42,24 @@ impl ProcessIdentity {
 }
 
 fn resolve_instance_id() -> String {
+    pinned_instance_id()
+        .or_else(machine_hostname)
+        .unwrap_or_else(|| Uuid::now_v7().to_string())
+}
+
+fn pinned_instance_id() -> Option<String> {
     std::env::var("OPENVK_INSTANCE_ID")
         .ok()
         .map(|value| value.trim().to_owned())
         .filter(|value| is_instance_id(value))
-        .unwrap_or_else(|| Uuid::now_v7().to_string())
+}
+
+fn machine_hostname() -> Option<String> {
+    hostname::get()
+        .ok()
+        .and_then(|name| name.into_string().ok())
+        .map(|name| name.trim().to_owned())
+        .filter(|name| is_instance_id(name))
 }
 
 fn is_instance_id(value: &str) -> bool {
@@ -75,8 +88,20 @@ mod tests {
     fn instance_id_rejects_spaces_and_empty() {
         assert!(is_instance_id("openvk-api-7f3c"));
         assert!(is_instance_id("0193a8c0-1234-7abc-8000-000000000001"));
+        assert!(is_instance_id("MacBook-Pro.local"));
         assert!(!is_instance_id(""));
         assert!(!is_instance_id("bad id"));
         assert!(!is_instance_id(&"x".repeat(129)));
+    }
+
+    #[test]
+    fn instance_id_defaults_to_hostname() {
+        let resolved = super::resolve_instance_id();
+        if let Some(pinned) = super::pinned_instance_id() {
+            assert_eq!(resolved, pinned);
+            return;
+        }
+        let host = super::machine_hostname().expect("machine hostname");
+        assert_eq!(resolved, host);
     }
 }
