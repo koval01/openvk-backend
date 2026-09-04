@@ -12,10 +12,10 @@ use crate::state::AppState;
 pub async fn get_user(
     State(state): State<AppState>,
     _auth: AuthUser,
-    Path(id): Path<i64>,
+    Path(key): Path<String>,
 ) -> Result<Proto<pb::User>, AppError> {
     Ok(Proto(codec::user_to_pb(
-        &services::get_profile(&state, id).await?,
+        &services::get_profile_by_key(&state, &key).await?,
     )))
 }
 

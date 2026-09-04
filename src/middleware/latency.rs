@@ -13,7 +13,7 @@ pub async fn latency(State(state): State<AppState>, mut request: Request, next: 
     let started = Instant::now();
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
-    let trace_id = TraceId::from_request(&request);
+    let trace_id = TraceId::new();
     request.extensions_mut().insert(trace_id);
 
     let span = tracing::info_span!(

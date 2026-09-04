@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use bytes::Bytes;
+use reqwest::header::{ACCEPT, ACCEPT_ENCODING};
 
+use crate::config::DICEBEAR_DEFAULT_URL;
 use crate::error::AppError;
 use crate::modules::media::kinds::{MediaKind, storage_key};
 use crate::modules::media::repository::{MediaRepository, NewMedia};
@@ -10,7 +12,8 @@ use crate::modules::users;
 use crate::state::AppState;
 
 /// Notionists SVG with the greys from the product embed. `{seed}` is the user id.
-pub const DEFAULT_URL: &str = "https://api.dicebear.com/10.x/notionists/svg?backgroundColor=ececed&inkColor=3b3d42&paperColor=fafafa&seed={seed}";
+#[cfg_attr(not(test), allow(dead_code))]
+pub const DEFAULT_URL: &str = DICEBEAR_DEFAULT_URL;
 
 const MAX_BYTES: usize = 512 * 1024;
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
@@ -45,6 +48,9 @@ pub async fn backfill(state: &AppState) -> Result<(), AppError> {
         return Ok(());
     }
     let ids = state.users().ids_without_avatar().await?;
+    if !ids.is_empty() {
+        tracing::info!(count = ids.len(), "storing default avatars");
+    }
     for user_id in ids {
         if let Err(error) = assign(state, user_id).await {
             tracing::warn!(user_id, %error, "default avatar not stored");
@@ -61,6 +67,8 @@ async fn fetch_bytes(url: &str) -> Result<Bytes, AppError> {
         .map_err(|error| AppError::Validation(format!("dicebear client: {error}")))?;
     let response = client
         .get(url)
+        .header(ACCEPT, "image/svg+xml,image/*;q=0.9")
+        .header(ACCEPT_ENCODING, "identity")
         .send()
         .await
         .map_err(|error| AppError::Validation(format!("dicebear fetch: {error}")))?;
@@ -80,8 +88,7 @@ async fn fetch_bytes(url: &str) -> Result<Bytes, AppError> {
 
 async fn persist(state: &AppState, user_id: i64, bytes: Bytes) -> Result<(), AppError> {
     if is_safe_svg(&bytes) {
-        persist_svg(state, user_id, bytes).await?;
-        return Ok(());
+        return persist_svg(state, user_id, bytes).await;
     }
     let media = services::persist_object(
         state,
@@ -109,7 +116,10 @@ async fn persist_svg(state: &AppState, user_id: i64, bytes: Bytes) -> Result<(),
     let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
     MediaKind::Avatar.validate_size(size)?;
     let key = storage_key(user_id, MediaKind::Avatar, "svg");
-    state.storage.put(&key, bytes.clone(), "image/svg+xml").await?;
+    state
+        .storage
+        .put(&key, bytes.clone(), "image/svg+xml")
+        .await?;
     let size_bytes = i64::try_from(bytes.len()).unwrap_or(i64::MAX);
     let inserted = MediaRepository::new(&state.db, &state.config.media_public_base_url)
         .insert_media(NewMedia {
@@ -142,12 +152,18 @@ fn is_safe_svg(bytes: &[u8]) -> bool {
     let Ok(text) = std::str::from_utf8(bytes) else {
         return false;
     };
-    let trimmed = text.trim_start();
-    let looks_like_svg = trimmed.starts_with("<svg")
-        || (trimmed.starts_with("<?xml") && contains_ignore_ascii_case(bytes, b"<svg"));
+    let trimmed = text.trim_start_matches('\u{feff}').trim_start();
+    let looks_like_svg = starts_with_ignore_ascii_case(trimmed, "<svg")
+        || (starts_with_ignore_ascii_case(trimmed, "<?xml")
+            && contains_ignore_ascii_case(bytes, b"<svg"));
     looks_like_svg
         && !contains_ignore_ascii_case(bytes, b"<script")
         && !contains_ignore_ascii_case(bytes, b"javascript:")
+}
+
+fn starts_with_ignore_ascii_case(haystack: &str, prefix: &str) -> bool {
+    haystack.len() >= prefix.len()
+        && haystack.as_bytes()[..prefix.len()].eq_ignore_ascii_case(prefix.as_bytes())
 }
 
 fn contains_ignore_ascii_case(haystack: &[u8], needle: &[u8]) -> bool {
@@ -158,7 +174,7 @@ fn contains_ignore_ascii_case(haystack: &[u8], needle: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_safe_svg, url_for_user, DEFAULT_URL};
+    use super::{DEFAULT_URL, is_safe_svg, url_for_user};
 
     #[test]
     fn seed_replaces_the_placeholder() {

@@ -17,7 +17,9 @@ pub async fn list(
 pub async fn get(
     State(state): State<AppState>,
     _auth: AuthUser,
-    Path(id): Path<i64>,
+    Path(key): Path<String>,
 ) -> Result<Proto<pb::Group>, AppError> {
-    Ok(Proto(codec::group_to_pb(&services::get(&state, id).await?)))
+    Ok(Proto(codec::group_to_pb(
+        &services::get_by_key(&state, &key).await?,
+    )))
 }

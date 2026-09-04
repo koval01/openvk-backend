@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Templates
 
-UI source of truth: [OpenVK `Web/Presenters/templates`](https://github.com/OpenVK/openvk/tree/master/Web/Presenters/templates). API shapes should feed those pages, not a REST-only UI.
+UI source of truth: local clone [`/Users/yaroslav.koval/VSCodeProjects/openvk/Web/Presenters/templates`](/Users/yaroslav.koval/VSCodeProjects/openvk/Web/Presenters/templates) (same tree as [OpenVK `Web/Presenters/templates`](https://github.com/OpenVK/openvk/tree/master/Web/Presenters/templates)). API shapes should feed those pages, not a REST-only UI.
 
 Owner-scoped URLs from the layout: `/id{num}`, `/friends{id}`, `/albums{id}`, `/videos{id}`, `/audios{id}`, `/notes{id}`, `/groups{id}`, `/wall{owner}`, `/wall{owner}_{local}`.
 

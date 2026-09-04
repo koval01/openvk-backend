@@ -141,8 +141,30 @@ impl<'a> UserRepository<'a> {
             .all(self.db)
             .await?
             .into_iter()
+            .filter(|row| !is_integration_test_login(&row.login))
             .map(|row| row.id)
             .collect())
+    }
+
+    pub async fn find_by_key(&self, key: &str) -> Result<Option<User>, AppError> {
+        let key = key.trim();
+        if key.is_empty() {
+            return Ok(None);
+        }
+        if let Ok(id) = key.parse::<i64>() {
+            if let Some(user) = self.find_by_id(id).await? {
+                return Ok(Some(user));
+            }
+            // `/id1` is numeric in OpenVK; demo logins are `id1` with a random public id.
+            let Some(model) = self.find_model_by_login(&format!("id{id}")).await? else {
+                return Ok(None);
+            };
+            return self.find_by_id(model.id).await;
+        }
+        let Some(model) = self.find_model_by_login(key).await? else {
+            return Ok(None);
+        };
+        self.find_by_id(model.id).await
     }
 
     pub async fn find_by_id(&self, id: i64) -> Result<Option<User>, AppError> {
@@ -385,4 +407,12 @@ fn empty_to_none(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(ToOwned::to_owned)
+}
+
+/// `tests/common` issues `t{millis}{seq}` logins. Skip them so a local `cargo run`
+/// does not fetch a DiceBear portrait for every leftover API test account.
+fn is_integration_test_login(login: &str) -> bool {
+    login
+        .strip_prefix('t')
+        .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit()))
 }

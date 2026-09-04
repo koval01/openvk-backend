@@ -1,0 +1,14 @@
+---
+description: Original OpenVK clone is the behavior spec for this rewrite
+alwaysApply: true
+---
+
+# Original OpenVK
+
+This is a rewrite of OpenVK (PHP) as a Rust API plus Svelte SPA. Do not invent URLs, page structure, or edge-case behavior.
+
+**Clone:** `/Users/yaroslav.koval/VSCodeProjects/openvk`
+
+Read there first: `Web/routes.yml`, `Web/Presenters/`, `Web/Presenters/templates/`, `locales/`. GitHub OpenVK/openvk is the same tree, not a second spec.
+
+**Live:** https://openvk.org when runtime behavior is unclear from PHP. Log in as the owner. Do not commit cookies or passwords; ask in chat for a fresh session.

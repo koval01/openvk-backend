@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Milestones
 
-The product surface is [OpenVK `Web/routes.yml`](https://github.com/OpenVK/openvk/blob/master/Web/routes.yml). The page spec is [OpenVK `Web/Presenters/templates`](https://github.com/OpenVK/openvk/tree/master/Web/Presenters/templates). Do not invent a parallel backlog or a second layout.
+The product surface is local clone `/Users/yaroslav.koval/VSCodeProjects/openvk/Web/routes.yml` ([OpenVK `Web/routes.yml`](https://github.com/OpenVK/openvk/blob/master/Web/routes.yml)). The page spec is `/Users/yaroslav.koval/VSCodeProjects/openvk/Web/Presenters/templates`. Do not invent a parallel backlog or a second layout.
 
 - A milestone is a **closed URL set** a person can finish without a stub: permalink, API, 2007 page, privacy.
 - Cluster by **handler family** (Wall, Photos, Audio, Admin), not by crate or component.

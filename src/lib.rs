@@ -103,7 +103,6 @@ fn cors_layer(origins: &[String]) -> CorsLayer {
         header::ACCEPT,
         header::COOKIE,
         header::RANGE,
-        crate::trace::TRACE_HEADER,
         HeaderName::from_static("x-csrf-token"),
         HeaderName::from_static("x-openvk-challenge"),
     ];

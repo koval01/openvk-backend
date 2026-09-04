@@ -10,8 +10,12 @@ pub async fn list(state: &AppState) -> Result<Vec<Group>, AppError> {
 }
 
 pub async fn get(state: &AppState, id: i64) -> Result<Group, AppError> {
+    get_by_key(state, &id.to_string()).await
+}
+
+pub async fn get_by_key(state: &AppState, key: &str) -> Result<Group, AppError> {
     GroupRepository::new(&state.db, state.media_base_url())
-        .get(id)
+        .get_by_key(key)
         .await?
         .ok_or(AppError::NotFound)
 }

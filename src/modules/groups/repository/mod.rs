@@ -39,6 +39,28 @@ impl<'a> GroupRepository<'a> {
         Ok(Some(self.to_group(row).await?))
     }
 
+    pub async fn get_by_slug(&self, slug: &str) -> Result<Option<Group>, AppError> {
+        let slug = slug.trim().to_ascii_lowercase();
+        if slug.is_empty() {
+            return Ok(None);
+        }
+        let Some(row) = GroupEntity::find()
+            .filter(group::Column::Slug.eq(slug))
+            .one(self.db)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(self.to_group(row).await?))
+    }
+
+    pub async fn get_by_key(&self, key: &str) -> Result<Option<Group>, AppError> {
+        if let Ok(id) = key.trim().parse::<i64>() {
+            return self.get(id).await;
+        }
+        self.get_by_slug(key).await
+    }
+
     async fn to_group(&self, row: group::Model) -> Result<Group, AppError> {
         let members = i64::try_from(
             GroupMemberEntity::find()

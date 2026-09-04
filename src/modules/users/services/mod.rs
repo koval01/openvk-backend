@@ -5,23 +5,24 @@ use crate::modules::users::models::{ChangePassword, DeleteAccount, UpdateAccount
 use crate::state::AppState;
 
 pub async fn get_profile(state: &AppState, id: i64) -> Result<User, AppError> {
-    if let Some(cached) = state.caches.users.get(&id).await {
-        return Ok(cached);
-    }
+    get_profile_by_key(state, &id.to_string()).await
+}
 
-    if let Some(cached) = cache::get_cached_user(&state.redis, &state.vault, id).await {
-        state.caches.users.insert(id, cached.clone()).await;
-        return Ok(cached);
-    }
-
+pub async fn get_profile_by_key(state: &AppState, key: &str) -> Result<User, AppError> {
     let user = state
         .users()
-        .find_by_id(id)
+        .find_by_key(key)
         .await?
         .ok_or(AppError::NotFound)?;
-
-    state.caches.users.insert(id, user.clone()).await;
-    cache::cache_user(&state.redis, &state.vault, id, &user).await;
+    if let Some(cached) = state.caches.users.get(&user.id).await {
+        return Ok(cached);
+    }
+    if let Some(cached) = cache::get_cached_user(&state.redis, &state.vault, user.id).await {
+        state.caches.users.insert(user.id, cached.clone()).await;
+        return Ok(cached);
+    }
+    state.caches.users.insert(user.id, user.clone()).await;
+    cache::cache_user(&state.redis, &state.vault, user.id, &user).await;
     Ok(user)
 }
 

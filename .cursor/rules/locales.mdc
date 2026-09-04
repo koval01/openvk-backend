@@ -5,4 +5,4 @@ alwaysApply: true
 
 # Locales
 
-User-visible site chrome is localized in the frontend from [OpenVK `locales`](https://github.com/OpenVK/openvk/tree/master/locales). Russian is the default and the fallback. Do not add a parallel backend string catalog for HTML pages. API error messages may stay English until a later pass.
+User-visible site chrome is localized in the frontend from `/Users/yaroslav.koval/VSCodeProjects/openvk/locales` ([OpenVK `locales`](https://github.com/OpenVK/openvk/tree/master/locales)). Russian is the default and the fallback. Do not add a parallel backend string catalog for HTML pages. API error messages may stay English until a later pass.

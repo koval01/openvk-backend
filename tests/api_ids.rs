@@ -27,6 +27,17 @@ async fn new_accounts_get_random_32bit_ids() {
     )
     .await;
     assert_eq!(profile.id, id_a);
+
+    let by_login: pb::User = decode_response(
+        reqwest::Client::new()
+            .get(format!("{base}/api/v1/users/{first}"))
+            .header("Authorization", format!("Bearer {token_a}"))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(by_login.id, id_a);
 }
 
 #[tokio::test]

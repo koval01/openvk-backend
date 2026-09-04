@@ -44,7 +44,7 @@ pub struct Config {
     pub turnstile_secret_key: String,
     pub turnstile_siteverify_url: String,
     pub cookie_secure: bool,
-    /// DiceBear template with `{seed}`. Empty / `off` skips generated avatars.
+    /// `DiceBear` template with `{seed}`. Empty / `off` skips generated avatars.
     pub dicebear_url: Option<String>,
 }
 
@@ -297,7 +297,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn dicebear_url_off_disables_generation() {
         assert_eq!(super::parse_dicebear_url("off"), None);
         assert_eq!(super::parse_dicebear_url("0"), None);
@@ -309,6 +308,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn loopback_cors_aliases_localhost() {
         let expanded = super::expand_loopback_origins(["http://127.0.0.1:5173".to_owned()]);
         assert!(expanded.contains(&"http://127.0.0.1:5173".to_owned()));

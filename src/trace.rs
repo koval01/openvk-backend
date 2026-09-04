@@ -1,9 +1,10 @@
-//! Request traces: `x-trace-id` plus a task-local id for error logs.
+//! Request traces: server-issued `x-trace-id` plus a task-local id for error logs.
 
 use std::future::Future;
 use std::time::Duration;
 
-use axum::http::{HeaderName, HeaderValue, Request};
+use axum::http::HeaderName;
+use axum::http::HeaderValue;
 use uuid::Uuid;
 
 pub const TRACE_HEADER: HeaderName = HeaderName::from_static("x-trace-id");
@@ -23,15 +24,6 @@ impl TraceId {
 
     pub fn parse(value: &str) -> Option<Self> {
         Uuid::try_parse(value.trim()).ok().map(Self)
-    }
-
-    pub fn from_request<B>(request: &Request<B>) -> Self {
-        request
-            .headers()
-            .get(TRACE_HEADER)
-            .and_then(|value| value.to_str().ok())
-            .and_then(Self::parse)
-            .unwrap_or_default()
     }
 
     pub fn header_value(self) -> HeaderValue {
