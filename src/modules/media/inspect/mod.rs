@@ -376,6 +376,21 @@ mod tests {
     }
 
     #[test]
+    fn webp_is_rewritten_as_webp() {
+        let mut raw = Vec::new();
+        image::codecs::webp::WebPEncoder::new_lossless(&mut raw)
+            .encode(&[255, 0, 0, 255], 1, 1, image::ExtendedColorType::Rgba8)
+            .unwrap();
+        let clean = sanitize(MediaKind::Avatar, "face.webp", "image/webp", &raw).unwrap();
+        assert_eq!(clean.mime, "image/webp");
+        assert_eq!(clean.extension, "webp");
+        assert_eq!(clean.width, Some(1));
+        assert_eq!(clean.height, Some(1));
+        assert!(clean.bytes.starts_with(b"RIFF"));
+        assert_eq!(&clean.bytes[8..12], b"WEBP");
+    }
+
+    #[test]
     fn wav_roundtrip_keeps_a_valid_container() {
         let clean = sanitize(MediaKind::Audio, "tiny.wav", "audio/wav", WAV).unwrap();
         assert_eq!(clean.mime, "audio/wav");

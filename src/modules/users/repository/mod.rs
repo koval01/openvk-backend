@@ -146,6 +146,16 @@ impl<'a> UserRepository<'a> {
             .collect())
     }
 
+    pub async fn svg_avatar_keys(&self) -> Result<Vec<(i64, String)>, AppError> {
+        Ok(UserEntity::find()
+            .filter(user::Column::AvatarKey.ends_with(".svg"))
+            .all(self.db)
+            .await?
+            .into_iter()
+            .filter_map(|row| row.avatar_key.map(|key| (row.id, key)))
+            .collect())
+    }
+
     pub async fn find_by_key(&self, key: &str) -> Result<Option<User>, AppError> {
         let key = key.trim();
         if key.is_empty() {

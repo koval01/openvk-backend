@@ -4,6 +4,7 @@ use bytes::Bytes;
 use image::codecs::gif::GifDecoder;
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::PngEncoder;
+use image::codecs::webp::WebPEncoder;
 use image::{AnimationDecoder, ExtendedColorType, ImageDecoder, ImageEncoder};
 
 use crate::error::AppError;
@@ -74,8 +75,34 @@ pub fn webp(bytes: &[u8]) -> Result<CleanMedia, AppError> {
     let stripped = strip_riff_webp(bytes)?;
     if let Some((width, height)) = webp_canvas_dims(&stripped)? {
         validate_dims(width, height)?;
+        return reencode_webp(&stripped, width, height);
     }
-    reencode_png(&stripped, 0, 0)
+    reencode_webp(&stripped, 0, 0)
+}
+
+fn reencode_webp(bytes: &[u8], header_w: u32, header_h: u32) -> Result<CleanMedia, AppError> {
+    let img = image::load_from_memory(bytes).map_err(|_| invalid("image payload"))?;
+    if header_w != 0 && (img.width() != header_w || img.height() != header_h) {
+        return Err(invalid("image header does not match pixels"));
+    }
+    validate_dims(img.width(), img.height())?;
+    let rgba = img.to_rgba8();
+    let mut out = Vec::new();
+    WebPEncoder::new_lossless(&mut out)
+        .encode(
+            rgba.as_raw(),
+            rgba.width(),
+            rgba.height(),
+            ExtendedColorType::Rgba8,
+        )
+        .map_err(|_| invalid("webp rewrite"))?;
+    Ok(CleanMedia {
+        bytes: Bytes::from(out),
+        mime: "image/webp".into(),
+        extension: "webp",
+        width: as_i32_dim(rgba.width()),
+        height: as_i32_dim(rgba.height()),
+    })
 }
 
 fn reencode_png(bytes: &[u8], header_w: u32, header_h: u32) -> Result<CleanMedia, AppError> {

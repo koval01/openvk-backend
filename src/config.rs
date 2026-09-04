@@ -48,7 +48,7 @@ pub struct Config {
     pub dicebear_url: Option<String>,
 }
 
-/// Notionists SVG. `{seed}` is replaced with the user id on first save.
+/// Notionists SVG. `{seed}` is replaced with the user id; the file is stored as `WebP`.
 pub(crate) const DICEBEAR_DEFAULT_URL: &str = "https://api.dicebear.com/10.x/notionists/svg?backgroundColor=ececed&inkColor=3b3d42&paperColor=fafafa&seed={seed}";
 
 impl Config {

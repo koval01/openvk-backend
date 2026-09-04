@@ -7,6 +7,7 @@ use axum::Router;
 use axum::http::{StatusCode, Uri, header};
 use axum::response::IntoResponse;
 use axum::routing::get;
+use bytes::Bytes;
 use common::{
     auth_header, decode_response, register, start_app, start_app_with_config, unique_login,
 };
@@ -16,7 +17,7 @@ use tokio::net::TcpListener;
 const MEDIA_PREFIX: &str = "https://media.openvk.test/";
 
 #[tokio::test]
-async fn register_stores_the_dicebear_svg_in_object_storage() {
+async fn register_stores_the_dicebear_avatar_as_webp() {
     let (dicebear, hits) = serve_svg().await;
     let template = format!("{dicebear}/svg?backgroundColor=ececed&seed={{seed}}");
     let (base, state) = start_app_with_config(move |config| {
@@ -44,20 +45,58 @@ async fn register_stores_the_dicebear_svg_in_object_storage() {
     assert!(
         std::path::Path::new(key)
             .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("svg")),
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("webp")),
         "{key}"
     );
     let stored = state.storage.get(key).await.expect("stored avatar");
-    assert_eq!(stored.content_type, "image/svg+xml");
-    let body = std::str::from_utf8(&stored.bytes).expect("svg utf-8");
-    assert!(body.contains("<svg"), "{body}");
-    assert!(body.contains(&format!("data-seed=\"{user_id}\"")), "{body}");
+    assert_eq!(stored.content_type, "image/webp");
+    assert!(stored.bytes.starts_with(b"RIFF"), "webp riff header");
+    assert_eq!(&stored.bytes[8..12], b"WEBP");
 
     let _ = load_user(&base, &token, user_id).await;
     assert_eq!(
         hits.load(Ordering::SeqCst),
         1,
         "profile reads must not refetch"
+    );
+}
+
+#[tokio::test]
+async fn backfill_converts_a_stored_svg_avatar_to_webp() {
+    let (base, state) = start_app().await;
+    let (token, user_id) = register(&base, &unique_login(), "password123").await;
+    let svg_key = format!("{user_id}/avatar/legacy.svg");
+    let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><rect width=\"10\" height=\"10\" fill=\"#ececed\"/></svg>";
+    state
+        .storage
+        .put(&svg_key, Bytes::from(svg), "image/svg+xml")
+        .await
+        .expect("store svg");
+    state
+        .users()
+        .set_avatar_key(user_id, Some(svg_key.clone()))
+        .await
+        .expect("point at svg");
+
+    openvk_backend::backfill_default_avatars(&state)
+        .await
+        .expect("backfill");
+
+    let profile = load_user(&base, &token, user_id).await;
+    let avatar_url = profile.avatar_url.expect("converted avatar");
+    let key = avatar_url.strip_prefix(MEDIA_PREFIX).expect("storage key");
+    assert!(
+        std::path::Path::new(key)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("webp")),
+        "{key}"
+    );
+    let stored = state.storage.get(key).await.expect("stored webp");
+    assert_eq!(stored.content_type, "image/webp");
+    assert_eq!(&stored.bytes[8..12], b"WEBP");
+    assert!(
+        !state.storage.exists(&svg_key).await.expect("svg gone"),
+        "legacy svg must be deleted"
     );
 }
 
@@ -109,7 +148,7 @@ async fn serve_svg() -> (String, Arc<AtomicU64>) {
                 (
                     [(header::CONTENT_TYPE, "image/svg+xml")],
                     format!(
-                        "<svg xmlns=\"http://www.w3.org/2000/svg\" data-seed=\"{seed}\"></svg>"
+                        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\" data-seed=\"{seed}\"><rect width=\"10\" height=\"10\" fill=\"#ececed\"/></svg>"
                     ),
                 )
             }

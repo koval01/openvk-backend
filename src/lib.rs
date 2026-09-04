@@ -142,8 +142,13 @@ fn cors_layer(origins: &[String]) -> CorsLayer {
         .max_age(Duration::from_secs(600))
 }
 
+/// Rasterize leftover SVG avatars to WebP and fetch missing `DiceBear` portraits.
+pub async fn backfill_default_avatars(state: &AppState) -> Result<(), AppError> {
+    crate::modules::media::default_avatar::backfill(state).await
+}
+
 pub async fn serve(state: AppState) -> Result<(), AppError> {
-    if let Err(error) = crate::modules::media::default_avatar::backfill(&state).await {
+    if let Err(error) = backfill_default_avatars(&state).await {
         tracing::warn!(%error, "default avatar backfill failed");
     }
     let listen_addr = state.config.listen_addr;
