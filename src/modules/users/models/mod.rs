@@ -46,7 +46,59 @@ pub struct User {
     pub privacy_messages: PrivacyLevel,
     pub privacy_photos: PrivacyLevel,
     pub privacy_audio: PrivacyLevel,
+    #[serde(default)]
+    pub privacy_profile: PrivacyLevel,
+    #[serde(default)]
+    pub privacy_friends: PrivacyLevel,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub coins: i64,
+    #[serde(default)]
+    pub rating: i32,
+    #[serde(default = "default_role")]
+    pub role: String,
+    #[serde(default)]
+    pub banned: bool,
+    #[serde(default)]
+    pub ban_reason: Option<String>,
+    #[serde(default)]
+    pub banned_until: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub support_banned: bool,
+    #[serde(default)]
+    pub support_ban_reason: Option<String>,
+    #[serde(default = "default_true")]
+    pub posting_allowed: bool,
+    #[serde(default = "default_true")]
+    pub messaging_allowed: bool,
+}
+
+fn default_role() -> String {
+    "user".into()
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+impl User {
+    #[must_use]
+    pub fn is_admin(&self) -> bool {
+        self.role == "admin"
+    }
+
+    #[must_use]
+    pub fn is_agent(&self) -> bool {
+        matches!(self.role.as_str(), "admin" | "agent")
+    }
+
+    #[must_use]
+    pub fn is_banned_now(&self) -> bool {
+        if !self.banned {
+            return false;
+        }
+        self.banned_until.is_none_or(|until| until > Utc::now())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -58,6 +110,12 @@ pub struct UpdateAccount {
     pub city: Option<String>,
     pub privacy_wall: PrivacyLevel,
     pub privacy_messages: PrivacyLevel,
+    pub privacy_photos: PrivacyLevel,
+    pub privacy_audio: PrivacyLevel,
+    pub privacy_profile: PrivacyLevel,
+    pub privacy_friends: PrivacyLevel,
+    /// `None` leaves the current status. `Some("")` clears it.
+    pub status: Option<String>,
 }
 
 #[derive(Deserialize)]

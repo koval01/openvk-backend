@@ -13,7 +13,7 @@ pub async fn login(state: &AppState, login: &str, password: &str) -> Result<i64,
         ));
     }
 
-    AuthRepository::new(&state.db, &state.vault)
+    AuthRepository::new(&state.db, &state.vault, state.media_base_url())
         .authenticate(login, password)
         .await
 }
@@ -25,9 +25,13 @@ pub async fn register(state: &AppState, login: &str, password: &str) -> Result<i
         ));
     }
 
-    AuthRepository::new(&state.db, &state.vault)
+    let user_id = AuthRepository::new(&state.db, &state.vault, state.media_base_url())
         .register(login, password)
-        .await
+        .await?;
+    if let Err(error) = crate::modules::media::default_avatar::assign(state, user_id).await {
+        tracing::warn!(user_id, %error, "default avatar not stored");
+    }
+    Ok(user_id)
 }
 
 pub async fn issue_token(state: &AppState, user_id: i64) -> Result<String, AppError> {

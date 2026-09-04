@@ -2,7 +2,7 @@ use bytes::Bytes;
 
 use crate::error::AppError;
 use crate::modules::media::inspect;
-use crate::modules::media::kinds::{MediaKind, public_media_url, storage_key};
+use crate::modules::media::kinds::{MediaKind, storage_key};
 use crate::modules::media::models::{Album, AudioTrack, Photo, Video};
 use crate::modules::media::repository::{MediaRepository, NewMedia};
 use crate::modules::users;
@@ -22,7 +22,7 @@ pub async fn list_audio(
     state: &AppState,
     owner_user_id: Option<i64>,
 ) -> Result<Vec<AudioTrack>, AppError> {
-    MediaRepository::new(&state.db)
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
         .list_audio(owner_user_id)
         .await
 }
@@ -32,21 +32,61 @@ pub async fn list_albums(
     owner_user_id: Option<i64>,
     include_photos: bool,
 ) -> Result<Vec<Album>, AppError> {
-    MediaRepository::new(&state.db)
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
         .list_albums(owner_user_id, include_photos)
         .await
 }
 
 pub async fn get_album(state: &AppState, album_id: i64) -> Result<Album, AppError> {
-    MediaRepository::new(&state.db).get_album(album_id).await
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
+        .get_album(album_id)
+        .await
 }
 
 pub async fn list_videos(
     state: &AppState,
     owner_user_id: Option<i64>,
 ) -> Result<Vec<Video>, AppError> {
-    MediaRepository::new(&state.db)
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
         .list_videos(owner_user_id)
+        .await
+}
+
+pub async fn get_photo(
+    state: &AppState,
+    owner_user_id: i64,
+    media_id: i64,
+) -> Result<Photo, AppError> {
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
+        .get_photo(owner_user_id, media_id)
+        .await
+}
+
+pub async fn get_photo_by_id(state: &AppState, media_id: i64) -> Result<Photo, AppError> {
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
+        .get_photo_by_id(media_id)
+        .await
+}
+
+pub async fn get_video(
+    state: &AppState,
+    owner_user_id: i64,
+    video_id: i64,
+) -> Result<Video, AppError> {
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
+        .get_video(owner_user_id, video_id)
+        .await
+}
+
+pub async fn get_video_by_id(state: &AppState, video_id: i64) -> Result<Video, AppError> {
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
+        .get_video_by_id(video_id)
+        .await
+}
+
+pub async fn get_audio_by_id(state: &AppState, audio_id: i64) -> Result<AudioTrack, AppError> {
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
+        .get_audio_by_id(audio_id)
         .await
 }
 
@@ -56,7 +96,7 @@ pub async fn create_album(
     title: &str,
     description: Option<&str>,
 ) -> Result<Album, AppError> {
-    MediaRepository::new(&state.db)
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
         .create_album(owner_user_id, title, description)
         .await
 }
@@ -67,7 +107,7 @@ pub async fn upload_photo(
     album_id: Option<i64>,
     upload: PreparedUpload,
 ) -> Result<Photo, AppError> {
-    let repo = MediaRepository::new(&state.db);
+    let repo = MediaRepository::new(&state.db, &state.config.media_public_base_url);
     let existing_album = if let Some(album_id) = album_id {
         Some(repo.require_owned_album(album_id, owner_user_id).await?)
     } else {
@@ -93,7 +133,7 @@ pub async fn upload_audio(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(&upload.file_name);
-    MediaRepository::new(&state.db)
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
         .insert_audio(
             owner_user_id,
             media.id,
@@ -116,7 +156,7 @@ pub async fn upload_video(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(&upload.file_name);
-    MediaRepository::new(&state.db)
+    MediaRepository::new(&state.db, &state.config.media_public_base_url)
         .insert_video(
             owner_user_id,
             media.id,
@@ -132,12 +172,12 @@ pub async fn upload_avatar(
     owner_user_id: i64,
     upload: PreparedUpload,
 ) -> Result<User, AppError> {
-    let repo = MediaRepository::new(&state.db);
+    let repo = MediaRepository::new(&state.db, &state.config.media_public_base_url);
     let previous = repo.find_avatar(owner_user_id).await?;
     let media = persist_object(state, owner_user_id, MediaKind::Avatar, &upload).await?;
     let user = state
         .users()
-        .set_avatar_url(owner_user_id, Some(public_media_url(&media.storage_key)))
+        .set_avatar_key(owner_user_id, Some(media.storage_key.clone()))
         .await?;
     users::services::replace_cached_user(state, user.clone()).await;
     let album = repo.default_album(owner_user_id).await?;
@@ -154,7 +194,7 @@ pub async fn delete_album(
     owner_user_id: i64,
     album_id: i64,
 ) -> Result<(), AppError> {
-    let repo = MediaRepository::new(&state.db);
+    let repo = MediaRepository::new(&state.db, &state.config.media_public_base_url);
     repo.require_owned_album(album_id, owner_user_id).await?;
     let keys = repo.storage_keys_for_album(album_id).await?;
     state.storage.delete_keys(&keys).await?;
@@ -167,7 +207,7 @@ pub async fn delete_photo(
     album_id: i64,
     media_id: i64,
 ) -> Result<(), AppError> {
-    let repo = MediaRepository::new(&state.db);
+    let repo = MediaRepository::new(&state.db, &state.config.media_public_base_url);
     repo.require_owned_album(album_id, owner_user_id).await?;
     let media = repo.get_media(media_id).await?;
     if media.owner_user_id != owner_user_id {
@@ -182,7 +222,7 @@ pub async fn delete_audio(
     owner_user_id: i64,
     audio_id: i64,
 ) -> Result<(), AppError> {
-    let repo = MediaRepository::new(&state.db);
+    let repo = MediaRepository::new(&state.db, &state.config.media_public_base_url);
     let (audio, media) = repo.find_audio(audio_id).await?;
     if audio.owner_user_id != owner_user_id {
         return Err(AppError::Forbidden);
@@ -197,7 +237,7 @@ pub async fn delete_video(
     owner_user_id: i64,
     video_id: i64,
 ) -> Result<(), AppError> {
-    let repo = MediaRepository::new(&state.db);
+    let repo = MediaRepository::new(&state.db, &state.config.media_public_base_url);
     let (video, media) = repo.find_video(video_id).await?;
     if video.owner_user_id != owner_user_id {
         return Err(AppError::Forbidden);
@@ -210,13 +250,13 @@ pub async fn delete_video(
 }
 
 pub async fn delete_all_user_objects(state: &AppState, owner_user_id: i64) -> Result<(), AppError> {
-    let keys = MediaRepository::new(&state.db)
+    let keys = MediaRepository::new(&state.db, &state.config.media_public_base_url)
         .storage_keys_for_user(owner_user_id)
         .await?;
     state.storage.delete_keys(&keys).await
 }
 
-async fn persist_object(
+pub(crate) async fn persist_object(
     state: &AppState,
     owner_user_id: i64,
     kind: MediaKind,
@@ -249,7 +289,7 @@ async fn persist_object(
         .put(&key, clean.bytes.clone(), &clean.mime)
         .await?;
     let size_bytes = i64::try_from(clean.bytes.len()).unwrap_or(i64::MAX);
-    match MediaRepository::new(&state.db)
+    match MediaRepository::new(&state.db, &state.config.media_public_base_url)
         .insert_media(NewMedia {
             owner_user_id,
             kind,

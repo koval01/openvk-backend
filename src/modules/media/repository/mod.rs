@@ -16,6 +16,7 @@ use crate::modules::media::models::{
 
 pub struct MediaRepository<'a> {
     db: &'a DatabaseConnection,
+    media_base_url: &'a str,
 }
 
 pub struct NewMedia {
@@ -30,8 +31,8 @@ pub struct NewMedia {
 }
 
 impl<'a> MediaRepository<'a> {
-    pub const fn new(db: &'a DatabaseConnection) -> Self {
-        Self { db }
+    pub const fn new(db: &'a DatabaseConnection, media_base_url: &'a str) -> Self {
+        Self { db, media_base_url }
     }
 
     pub async fn list_audio(
@@ -51,6 +52,7 @@ impl<'a> MediaRepository<'a> {
             .filter_map(|row| {
                 keys.get(&row.media_id).map(|key| {
                     audio_from_row(
+                        self.media_base_url,
                         row.id,
                         row.media_id,
                         row.artist,
@@ -107,6 +109,7 @@ impl<'a> MediaRepository<'a> {
             .into_iter()
             .map(|row| {
                 video_from_row(
+                    self.media_base_url,
                     row.id,
                     row.media_id,
                     row.title,
@@ -230,7 +233,7 @@ impl<'a> MediaRepository<'a> {
             active.cover_media_id = Set(Some(media.id));
             active.update(self.db).await?;
         }
-        Ok(photo_from_media(album.id, media))
+        Ok(photo_from_media(self.media_base_url, album.id, media))
     }
 
     pub async fn insert_audio(
@@ -260,6 +263,7 @@ impl<'a> MediaRepository<'a> {
         })
         .await?;
         Ok(audio_from_row(
+            self.media_base_url,
             row.id,
             row.media_id,
             row.artist,
@@ -297,6 +301,7 @@ impl<'a> MediaRepository<'a> {
         })
         .await?;
         Ok(video_from_row(
+            self.media_base_url,
             row.id,
             row.media_id,
             row.title,
@@ -312,6 +317,66 @@ impl<'a> MediaRepository<'a> {
             .one(self.db)
             .await?
             .ok_or(AppError::NotFound)
+    }
+
+    pub async fn get_photo(&self, owner_user_id: i64, media_id: i64) -> Result<Photo, AppError> {
+        let photo = self.get_photo_by_id(media_id).await?;
+        if photo.owner_user_id != owner_user_id {
+            return Err(AppError::NotFound);
+        }
+        Ok(photo)
+    }
+
+    pub async fn get_photo_by_id(&self, media_id: i64) -> Result<Photo, AppError> {
+        let media = self.get_media(media_id).await?;
+        if media.deleted_at.is_some()
+            || (media.kind != MediaKind::Photo.as_str() && media.kind != MediaKind::Avatar.as_str())
+        {
+            return Err(AppError::NotFound);
+        }
+        let album_id = album_photo::Entity::find()
+            .filter(album_photo::Column::MediaId.eq(media_id))
+            .one(self.db)
+            .await?
+            .map(|row| row.album_id)
+            .unwrap_or(0);
+        Ok(photo_from_media(self.media_base_url, album_id, &media))
+    }
+
+    pub async fn get_video(&self, owner_user_id: i64, video_id: i64) -> Result<Video, AppError> {
+        let video = self.get_video_by_id(video_id).await?;
+        if video.owner_user_id != owner_user_id {
+            return Err(AppError::NotFound);
+        }
+        Ok(video)
+    }
+
+    pub async fn get_video_by_id(&self, video_id: i64) -> Result<Video, AppError> {
+        let (row, media) = self.find_video(video_id).await?;
+        Ok(video_from_row(
+            self.media_base_url,
+            row.id,
+            row.media_id,
+            row.title,
+            row.description,
+            row.status,
+            row.owner_user_id,
+            media.as_ref().map(|item| item.storage_key.as_str()),
+        ))
+    }
+
+    pub async fn get_audio_by_id(&self, audio_id: i64) -> Result<AudioTrack, AppError> {
+        let (row, media) = self.find_audio(audio_id).await?;
+        Ok(audio_from_row(
+            self.media_base_url,
+            row.id,
+            row.media_id,
+            row.artist,
+            row.title,
+            row.duration_ms,
+            row.owner_user_id,
+            &media.storage_key,
+        ))
     }
 
     pub async fn storage_keys_for_user(&self, owner_user_id: i64) -> Result<Vec<String>, AppError> {
@@ -450,7 +515,7 @@ impl<'a> MediaRepository<'a> {
         };
         let cover_url = match row.cover_media_id {
             Some(media_id) => match self.get_media(media_id).await {
-                Ok(media) => Some(public_media_url(&media.storage_key)),
+                Ok(media) => Some(public_media_url(self.media_base_url, &media.storage_key)),
                 Err(_) => photos.first().map(|photo| photo.url.clone()),
             },
             None => photos.first().map(|photo| photo.url.clone()),
@@ -484,7 +549,7 @@ impl<'a> MediaRepository<'a> {
         let mut photos = Vec::with_capacity(links.len());
         for link in links {
             if let Some(media) = media_rows.iter().find(|row| row.id == link.media_id) {
-                photos.push(photo_from_media(album_id, media));
+                photos.push(photo_from_media(self.media_base_url, album_id, media));
             }
         }
         Ok(photos)

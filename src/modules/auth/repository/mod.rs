@@ -9,9 +9,13 @@ pub struct AuthRepository<'a> {
 }
 
 impl<'a> AuthRepository<'a> {
-    pub const fn new(db: &'a DatabaseConnection, vault: &'a Vault) -> Self {
+    pub const fn new(
+        db: &'a DatabaseConnection,
+        vault: &'a Vault,
+        media_base_url: &'a str,
+    ) -> Self {
         Self {
-            users: UserRepository::new(db, vault),
+            users: UserRepository::new(db, vault, media_base_url),
         }
     }
 

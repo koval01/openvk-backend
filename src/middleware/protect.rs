@@ -42,8 +42,15 @@ fn is_safe(method: &Method) -> bool {
 fn is_public_path(path: &str) -> bool {
     matches!(
         path,
-        "/health" | "/ready" | "/api/v1/health" | "/api/v1/security/challenge"
-    )
+        "/health"
+            | "/ready"
+            | "/api/v1/health"
+            | "/api/v1/security/challenge"
+            | "/token"
+            | "/token/"
+            | "/oauth/token"
+    ) || path.starts_with("/method/")
+        || path.starts_with("/api/v1/away/")
 }
 
 fn reject_foreign_origin(headers: &HeaderMap, allowed: &[String]) -> Result<(), AppError> {

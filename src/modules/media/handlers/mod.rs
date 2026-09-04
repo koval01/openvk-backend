@@ -6,10 +6,9 @@ use crate::modules::media::models::{OwnerQuery, UploadPhotoQuery};
 use crate::modules::media::services::{self, PreparedUpload};
 use crate::pb;
 use crate::state::AppState;
-use crate::storage::validate_storage_key;
 use axum::extract::{Multipart, Path, Query, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 
 pub async fn list_audio(
     State(state): State<AppState>,
@@ -26,24 +25,57 @@ pub async fn list_albums(
     auth: AuthUser,
     Query(query): Query<OwnerQuery>,
 ) -> Result<Proto<pb::AlbumList>, AppError> {
-    Ok(Proto(codec::albums_to_pb(
-        services::list_albums(
-            &state,
-            Some(query.owner_id.unwrap_or(auth.user_id)),
-            query.photos.unwrap_or(false),
-        )
-        .await?,
-    )))
+    let mut albums = services::list_albums(
+        &state,
+        Some(query.owner_id.unwrap_or(auth.user_id)),
+        query.photos.unwrap_or(false),
+    )
+    .await?;
+    for album in &mut albums {
+        crate::modules::likes::services::attach_photos(&state, &mut album.photos, auth.user_id)
+            .await?;
+    }
+    Ok(Proto(codec::albums_to_pb(albums)))
 }
 
 pub async fn get_album(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(id): Path<i64>,
 ) -> Result<Proto<pb::Album>, AppError> {
-    Ok(Proto(codec::album_to_pb(
-        &services::get_album(&state, id).await?,
-    )))
+    let mut album = services::get_album(&state, id).await?;
+    crate::modules::likes::services::attach_photos(&state, &mut album.photos, auth.user_id).await?;
+    Ok(Proto(codec::album_to_pb(&album)))
+}
+
+pub async fn get_photo(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((owner_id, media_id)): Path<(i64, i64)>,
+) -> Result<Proto<pb::Photo>, AppError> {
+    let mut photo = services::get_photo(&state, owner_id, media_id).await?;
+    crate::modules::likes::services::attach_photos(
+        &state,
+        std::slice::from_mut(&mut photo),
+        auth.user_id,
+    )
+    .await?;
+    Ok(Proto(codec::photo_to_pb(&photo)))
+}
+
+pub async fn get_video(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((owner_id, video_id)): Path<(i64, i64)>,
+) -> Result<Proto<pb::Video>, AppError> {
+    let mut video = services::get_video(&state, owner_id, video_id).await?;
+    crate::modules::likes::services::attach_videos(
+        &state,
+        std::slice::from_mut(&mut video),
+        auth.user_id,
+    )
+    .await?;
+    Ok(Proto(codec::video_to_pb(&video)))
 }
 
 pub async fn create_album(
@@ -70,9 +102,10 @@ pub async fn list_videos(
     auth: AuthUser,
     Query(query): Query<OwnerQuery>,
 ) -> Result<Proto<pb::VideoList>, AppError> {
-    Ok(Proto(codec::videos_to_pb(
-        services::list_videos(&state, Some(query.owner_id.unwrap_or(auth.user_id))).await?,
-    )))
+    let mut videos =
+        services::list_videos(&state, Some(query.owner_id.unwrap_or(auth.user_id))).await?;
+    crate::modules::likes::services::attach_videos(&state, &mut videos, auth.user_id).await?;
+    Ok(Proto(codec::videos_to_pb(videos)))
 }
 
 pub async fn upload_photo(
@@ -178,31 +211,6 @@ pub async fn delete_video(
 ) -> Result<StatusCode, AppError> {
     services::delete_video(&state, auth.user_id, id).await?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-pub async fn serve_object(
-    State(state): State<AppState>,
-    Path(key): Path<String>,
-) -> Result<Response, AppError> {
-    if validate_storage_key(&key).is_err() {
-        return Err(AppError::NotFound);
-    }
-    let object = state.storage.get(&key).await?;
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&object.content_type)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
-    );
-    headers.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("public, max-age=3600"),
-    );
-    headers.insert(
-        header::CONTENT_DISPOSITION,
-        HeaderValue::from_static("inline"),
-    );
-    Ok((headers, object.bytes).into_response())
 }
 
 async fn read_upload(mut multipart: Multipart) -> Result<PreparedUpload, AppError> {

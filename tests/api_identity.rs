@@ -1,7 +1,7 @@
 mod common;
 
 use common::start_app;
-use openvk_backend::{BUILD_HEADER, BUILD_ID, INSTANCE_HEADER};
+use openvk_backend::{BUILD_HEADER, BUILD_ID, INSTANCE_HEADER, TraceId};
 
 #[tokio::test]
 async fn responses_identify_build_and_instance() {
@@ -43,7 +43,19 @@ async fn responses_identify_build_and_instance() {
             .and_then(|value| value.to_str().ok()),
         Some(instance)
     );
-    assert!(first.headers().get("x-request-id").is_some());
+    assert!(first.headers().get("x-request-id").is_none());
+    let trace = first
+        .headers()
+        .get("x-trace-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("x-trace-id");
+    assert!(TraceId::parse(trace).is_some(), "{trace}");
+    let timing = first
+        .headers()
+        .get("server-timing")
+        .and_then(|value| value.to_str().ok())
+        .expect("server-timing");
+    assert!(timing.starts_with("app;dur="), "{timing}");
 }
 
 #[tokio::test]

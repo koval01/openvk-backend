@@ -18,7 +18,8 @@ pub struct Model {
     pub phone: Option<String>,
     pub phone_idx: Option<String>,
     pub wrap_key: Option<String>,
-    pub avatar_url: Option<String>,
+    /// Storage key of the avatar object. The public URL is built from config.
+    pub avatar_key: Option<String>,
     pub verified: bool,
     pub privacy_wall: String,
     pub privacy_messages: String,
@@ -28,6 +29,16 @@ pub struct Model {
     pub email_verified_at: Option<DateTimeUtc>,
     pub last_seen_at: Option<DateTimeUtc>,
     pub wall_seq: i64,
+    pub coins: i64,
+    pub rating: i32,
+    pub role: String,
+    pub banned: bool,
+    pub banned_until: Option<DateTimeUtc>,
+    pub ban_reason: Option<String>,
+    pub support_banned: bool,
+    pub support_ban_reason: Option<String>,
+    pub posting_allowed: bool,
+    pub messaging_allowed: bool,
     pub created_at: DateTimeUtc,
 }
 

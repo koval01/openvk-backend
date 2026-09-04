@@ -8,11 +8,11 @@ alwaysApply: true
 The product surface is [OpenVK `Web/routes.yml`](https://github.com/OpenVK/openvk/blob/master/Web/routes.yml). The page spec is [OpenVK `Web/Presenters/templates`](https://github.com/OpenVK/openvk/tree/master/Web/Presenters/templates). Do not invent a parallel backlog or a second layout.
 
 - A milestone is a **closed URL set** a person can finish without a stub: permalink, API, 2007 page, privacy.
-- Cluster by **handler family** (Wall, Photos, Audio), not by crate or component.
-- Browser paths follow OpenVK grammar (`/id{num}`, `/wall{owner}_{local}`, `/album{o}_{n}`, `/im/sel{num}`). REST under `/api/v1` is internal.
-- Order: site chrome → wall → people → photos → audio → video → clubs → mail → search → secondary (notes/docs/replies).
-- Not product milestones: themepacks, admin, VK API, support desk, coins, reports.
+- Cluster by **handler family** (Wall, Photos, Audio, Admin), not by crate or component.
+- Browser paths follow OpenVK grammar (`/id{num}`, `/wall{owner}_{local}`, `/album{o}_{n}`, `/im/sel{num}`, `/away.php`, `/method/{family}.{name}`). REST under `/api/v1` is internal. VK API is `/method/…`.
+- Order: site chrome (including `/away.php`) → wall → people → photos → audio → video → clubs → mail → search → secondary (notes/docs/replies) → gifts → support desk → reports → coins/vouchers → noSpam → bans/warnings/limits → admin → VK API.
+- Not product: themepacks (`/themepack/…`, settings style picker, style_avatar, milkshake) and the microblog post layout. Appearance is default/dark only.
 - `/feed` is friends’ wall posts, not a microblog.
-- 2007 is the site. Appearance is default/dark only.
+- 2007 is the site. External links leave through `/away.php?to=` so the address bar shows `away.php` (no PHP runtime).
 
 When planning or implementing, name the URLs in the slice and the exit criteria. Do not start the next family until the current URL set is closable.

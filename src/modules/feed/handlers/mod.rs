@@ -11,7 +11,9 @@ pub async fn news(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Proto<pb::WallPostList>, AppError> {
-    Ok(Proto(codec::wall_posts_to_pb(
-        services::chronological(&state, auth.user_id).await?,
-    )))
+    Ok(Proto(codec::wall_posts_to_pb({
+        let mut posts = services::chronological(&state, auth.user_id).await?;
+        crate::modules::likes::services::attach_wall(&state, &mut posts, auth.user_id).await?;
+        posts
+    })))
 }

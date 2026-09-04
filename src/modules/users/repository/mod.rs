@@ -15,11 +15,20 @@ use crate::vault::{self, Vault, aad_city, aad_email, aad_phone};
 pub struct UserRepository<'a> {
     db: &'a DatabaseConnection,
     vault: &'a Vault,
+    media_base_url: &'a str,
 }
 
 impl<'a> UserRepository<'a> {
-    pub const fn new(db: &'a DatabaseConnection, vault: &'a Vault) -> Self {
-        Self { db, vault }
+    pub const fn new(
+        db: &'a DatabaseConnection,
+        vault: &'a Vault,
+        media_base_url: &'a str,
+    ) -> Self {
+        Self {
+            db,
+            vault,
+            media_base_url,
+        }
     }
 
     pub async fn authenticate(&self, login: &str, password: &str) -> Result<i64, AppError> {
@@ -31,6 +40,23 @@ impl<'a> UserRepository<'a> {
             return Err(AppError::Unauthorized);
         }
         let id = model.id;
+        if model.banned {
+            if model.banned_until.is_some_and(|until| until <= Utc::now()) {
+                let mut active: user::ActiveModel = model.clone().into();
+                active.banned = Set(false);
+                active.banned_until = Set(None);
+                active.ban_reason = Set(None);
+                active.update(self.db).await?;
+            } else {
+                return Err(AppError::Banned(
+                    model
+                        .ban_reason
+                        .clone()
+                        .filter(|reason| !reason.is_empty())
+                        .unwrap_or_else(|| "account is banned".into()),
+                ));
+            }
+        }
         if password::needs_rehash(&model.password_hash) {
             let mut active: user::ActiveModel = model.into();
             active.password_hash = Set(password::hash(password)?);
@@ -109,11 +135,28 @@ impl<'a> UserRepository<'a> {
         Err(AppError::internal("could not allocate a public id"))
     }
 
-    pub async fn find_by_id(&self, id: i64) -> Result<Option<User>, AppError> {
-        self.find_model(id)
+    pub async fn ids_without_avatar(&self) -> Result<Vec<i64>, AppError> {
+        Ok(UserEntity::find()
+            .filter(user::Column::AvatarKey.is_null())
+            .all(self.db)
             .await?
-            .map(|model| into_user(self.vault, model))
-            .transpose()
+            .into_iter()
+            .map(|row| row.id)
+            .collect())
+    }
+
+    pub async fn find_by_id(&self, id: i64) -> Result<Option<User>, AppError> {
+        let Some(model) = self.find_model(id).await? else {
+            return Ok(None);
+        };
+        let friends = privacy_setting::Entity::find_by_id(id)
+            .one(self.db)
+            .await?
+            .map(|row| PrivacyLevel::from_db(&row.friends_list))
+            .unwrap_or_default();
+        let mut user = into_user(self.vault, self.media_base_url, model)?;
+        user.privacy_friends = friends;
+        Ok(Some(user))
     }
 
     pub async fn find_model(&self, id: i64) -> Result<Option<user::Model>, AppError> {
@@ -130,7 +173,7 @@ impl<'a> UserRepository<'a> {
             .await?;
         models
             .into_iter()
-            .map(|model| into_user(self.vault, model))
+            .map(|model| into_user(self.vault, self.media_base_url, model))
             .collect()
     }
 
@@ -167,16 +210,28 @@ impl<'a> UserRepository<'a> {
         active.city = Set(self.vault.encrypt_opt(&aad_city(id), city.as_deref())?);
         active.privacy_wall = Set(patch.privacy_wall.as_db().to_owned());
         active.privacy_messages = Set(patch.privacy_messages.as_db().to_owned());
+        active.privacy_photos = Set(patch.privacy_photos.as_db().to_owned());
+        active.privacy_audio = Set(patch.privacy_audio.as_db().to_owned());
+        active.privacy_profile = Set(patch.privacy_profile.as_db().to_owned());
+        if let Some(ref status) = patch.status {
+            active.status = Set(empty_to_none(Some(status.as_str())));
+        }
         let updated = active.update(self.db).await?;
 
         if let Some(settings) = privacy_setting::Entity::find_by_id(id).one(self.db).await? {
             let mut settings: privacy_setting::ActiveModel = settings.into();
             settings.wall = Set(patch.privacy_wall.as_db().to_owned());
             settings.messages = Set(patch.privacy_messages.as_db().to_owned());
+            settings.photos = Set(patch.privacy_photos.as_db().to_owned());
+            settings.audio = Set(patch.privacy_audio.as_db().to_owned());
+            settings.profile = Set(patch.privacy_profile.as_db().to_owned());
+            settings.friends_list = Set(patch.privacy_friends.as_db().to_owned());
             settings.update(self.db).await?;
         }
 
-        into_user(self.vault, updated)
+        let mut user = into_user(self.vault, self.media_base_url, updated)?;
+        user.privacy_friends = patch.privacy_friends;
+        Ok(user)
     }
 
     pub async fn change_password(
@@ -198,18 +253,18 @@ impl<'a> UserRepository<'a> {
         Ok(())
     }
 
-    pub async fn set_avatar_url(
+    pub async fn set_avatar_key(
         &self,
         id: i64,
-        avatar_url: Option<String>,
+        avatar_key: Option<String>,
     ) -> Result<User, AppError> {
         let Some(model) = self.find_model(id).await? else {
             return Err(AppError::NotFound);
         };
         let mut active: user::ActiveModel = model.into();
-        active.avatar_url = Set(avatar_url);
+        active.avatar_key = Set(avatar_key);
         let updated = active.update(self.db).await?;
-        into_user(self.vault, updated)
+        into_user(self.vault, self.media_base_url, updated)
     }
 
     pub async fn verify_password(&self, id: i64, password: &str) -> Result<(), AppError> {
@@ -277,7 +332,11 @@ impl<'a> UserRepository<'a> {
     }
 }
 
-pub fn into_user(vault: &Vault, model: user::Model) -> Result<User, AppError> {
+pub fn into_user(
+    vault: &Vault,
+    media_base_url: &str,
+    model: user::Model,
+) -> Result<User, AppError> {
     let id = model.id;
     Ok(User {
         id,
@@ -288,13 +347,27 @@ pub fn into_user(vault: &Vault, model: user::Model) -> Result<User, AppError> {
         city: vault.maybe_decrypt_opt(&aad_city(id), model.city)?,
         email: vault.maybe_decrypt_opt(&aad_email(id), model.email)?,
         phone: vault.maybe_decrypt_opt(&aad_phone(id), model.phone)?,
-        avatar_url: model.avatar_url,
+        avatar_url: model
+            .avatar_key
+            .map(|key| crate::modules::media::kinds::public_media_url(media_base_url, &key)),
         verified: model.verified,
         privacy_wall: PrivacyLevel::from_db(&model.privacy_wall),
         privacy_messages: PrivacyLevel::from_db(&model.privacy_messages),
         privacy_photos: PrivacyLevel::from_db(&model.privacy_photos),
         privacy_audio: PrivacyLevel::from_db(&model.privacy_audio),
+        privacy_profile: PrivacyLevel::from_db(&model.privacy_profile),
+        privacy_friends: PrivacyLevel::Everyone,
         created_at: model.created_at,
+        coins: model.coins,
+        rating: model.rating,
+        role: model.role,
+        banned: model.banned,
+        ban_reason: model.ban_reason,
+        banned_until: model.banned_until,
+        support_banned: model.support_banned,
+        support_ban_reason: model.support_ban_reason,
+        posting_allowed: model.posting_allowed,
+        messaging_allowed: model.messaging_allowed,
     })
 }
 

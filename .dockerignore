@@ -1,6 +1,10 @@
 /target
+/data
+/tests
+/deploy
 .git
 .gitignore
 .env
+.env.*
 *.md
 .DS_Store

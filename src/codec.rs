@@ -10,7 +10,9 @@ use prost::Message;
 use crate::error::AppError;
 use crate::modules::about::models::InstanceAbout;
 use crate::modules::auth::models::{Credentials, TokenResponse};
+use crate::modules::comments::models::Comment;
 use crate::modules::groups::models::Group;
+use crate::modules::likes::models::LikeState;
 use crate::modules::media::models::{Album, AudioTrack, Photo, Video};
 use crate::modules::messenger::models::Message as DomainMessage;
 use crate::modules::notifications::models::Notification;
@@ -99,11 +101,11 @@ pub fn privacy_to_pb(value: PrivacyLevel) -> i32 {
     }
 }
 
-fn rfc3339(value: DateTime<Utc>) -> String {
+pub(crate) fn rfc3339(value: DateTime<Utc>) -> String {
     value.to_rfc3339()
 }
 
-fn rfc3339_opt(value: Option<DateTime<Utc>>) -> Option<String> {
+pub(crate) fn rfc3339_opt(value: Option<DateTime<Utc>>) -> Option<String> {
     value.map(rfc3339)
 }
 
@@ -124,6 +126,18 @@ pub fn user_to_pb(user: &User) -> pb::User {
         privacy_photos: privacy_to_pb(user.privacy_photos),
         privacy_audio: privacy_to_pb(user.privacy_audio),
         created_at: rfc3339(user.created_at),
+        privacy_profile: privacy_to_pb(user.privacy_profile),
+        privacy_friends: privacy_to_pb(user.privacy_friends),
+        coins: user.coins,
+        rating: user.rating,
+        role: user.role.clone(),
+        banned: user.banned,
+        ban_reason: user.ban_reason.clone(),
+        banned_until: rfc3339_opt(user.banned_until),
+        support_banned: user.support_banned,
+        support_ban_reason: user.support_ban_reason.clone(),
+        posting_allowed: user.posting_allowed,
+        messaging_allowed: user.messaging_allowed,
     }
 }
 
@@ -143,12 +157,60 @@ pub fn wall_post_to_pb(post: &WallPost) -> pb::WallPost {
         content: post.content.clone(),
         permalink: post.permalink.clone(),
         created_at: rfc3339(post.created_at),
+        attachments: post
+            .attachments
+            .iter()
+            .map(|item| pb::WallAttachment {
+                kind: item.kind.clone(),
+                owner_id: item.owner_id,
+                object_id: item.object_id,
+                url: item.url.clone(),
+                title: item.title.clone(),
+                src: item.src.clone(),
+            })
+            .collect(),
+        geo: post.geo.as_ref().map(|geo| pb::GeoPoint {
+            lat: geo.lat,
+            lng: geo.lng,
+            name: geo.name.clone(),
+        }),
+        source: post.source.clone(),
+        nsfw: post.nsfw,
+        comment_count: post.comment_count,
+        club: post.club.as_ref().map(group_to_pb),
+        like_count: post.like_count,
+        liked: post.liked,
     }
 }
 
 pub fn wall_posts_to_pb(posts: Vec<WallPost>) -> pb::WallPostList {
     pb::WallPostList {
         posts: posts.iter().map(wall_post_to_pb).collect(),
+    }
+}
+
+pub fn comment_to_pb(comment: &Comment) -> pb::Comment {
+    pb::Comment {
+        id: comment.id,
+        author_id: comment.author_id,
+        author: Some(user_to_pb(&comment.author)),
+        content: comment.content.clone(),
+        created_at: rfc3339(comment.created_at),
+        like_count: comment.like_count,
+        liked: comment.liked,
+    }
+}
+
+pub fn comments_to_pb(comments: Vec<Comment>) -> pb::CommentList {
+    pb::CommentList {
+        comments: comments.iter().map(comment_to_pb).collect(),
+    }
+}
+
+pub fn like_state_to_pb(state: LikeState) -> pb::LikeState {
+    pb::LikeState {
+        liked: state.liked,
+        count: state.count,
     }
 }
 
@@ -197,6 +259,8 @@ pub fn photo_to_pb(photo: &Photo) -> pb::Photo {
         height: photo.height,
         original_filename: photo.original_filename.clone(),
         url: photo.url.clone(),
+        like_count: photo.like_count,
+        liked: photo.liked,
     }
 }
 
@@ -228,6 +292,8 @@ pub fn video_to_pb(video: &Video) -> pb::Video {
         status: video.status.clone(),
         owner_user_id: video.owner_user_id,
         src: video.src.clone(),
+        like_count: video.like_count,
+        liked: video.liked,
     }
 }
 
@@ -246,6 +312,8 @@ pub fn group_to_pb(group: &Group) -> pb::Group {
         kind: group.kind.clone(),
         owner_id: group.owner_id,
         created_at: rfc3339(group.created_at),
+        avatar_url: group.avatar_url.clone(),
+        members: group.members,
     }
 }
 
@@ -284,6 +352,8 @@ pub fn notification_to_pb(item: &Notification) -> pb::Notification {
         payload_json: item.payload.to_string(),
         read_at: rfc3339_opt(item.read_at),
         created_at: rfc3339(item.created_at),
+        actor: item.actor.as_ref().map(user_to_pb),
+        href: item.href.clone(),
     }
 }
 
@@ -330,6 +400,11 @@ pub fn update_account_from_pb(body: pb::UpdateAccount) -> UpdateAccount {
         city: body.city,
         privacy_wall: privacy_from_pb(body.privacy_wall),
         privacy_messages: privacy_from_pb(body.privacy_messages),
+        privacy_photos: privacy_from_pb(body.privacy_photos),
+        privacy_audio: privacy_from_pb(body.privacy_audio),
+        privacy_profile: privacy_from_pb(body.privacy_profile),
+        privacy_friends: privacy_from_pb(body.privacy_friends),
+        status: body.status,
     }
 }
 

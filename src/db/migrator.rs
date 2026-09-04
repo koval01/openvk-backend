@@ -25,6 +25,22 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "20260904_000002_data_protection",
         include_str!("../../migrations/20260904_000002_data_protection.sql"),
     ),
+    (
+        "20260904_000003_avatar_storage_key",
+        include_str!("../../migrations/20260904_000003_avatar_storage_key.sql"),
+    ),
+    (
+        "20260904_000004_wall_attachments",
+        include_str!("../../migrations/20260904_000004_wall_attachments.sql"),
+    ),
+    (
+        "20260904_000005_desk",
+        include_str!("../../migrations/20260904_000005_desk.sql"),
+    ),
+    (
+        "20260904_000006_likes",
+        include_str!("../../migrations/20260904_000006_likes.sql"),
+    ),
 ];
 
 pub async fn run(db: &DatabaseConnection) -> Result<(), AppError> {
@@ -36,6 +52,15 @@ pub async fn run(db: &DatabaseConnection) -> Result<(), AppError> {
     )
     .await?;
 
+    db.execute_unprepared("SELECT pg_advisory_lock(8723641)")
+        .await?;
+    let result = apply(db).await;
+    db.execute_unprepared("SELECT pg_advisory_unlock(8723641)")
+        .await?;
+    result
+}
+
+async fn apply(db: &DatabaseConnection) -> Result<(), AppError> {
     adopt_legacy_bootstrap(db).await?;
 
     for (version, sql) in MIGRATIONS {

@@ -11,7 +11,7 @@ use reqwest::header::AUTHORIZATION;
 #[tokio::test]
 async fn media_upload_display_and_delete_clears_storage() {
     let (base, state) = start_app().await;
-    assert_eq!(state.storage.backend_name(), "disk");
+    assert_eq!(state.storage.backend_name(), "memory");
     let login = unique_login();
     let password = "password123";
     let (token, _) = register(&base, &login, password).await;
@@ -36,33 +36,24 @@ async fn media_upload_display_and_delete_clears_storage() {
     let photo_body: pb::Photo = decode_response(photo).await;
     let photo_id = photo_body.id;
     let photo_url = photo_body.url.clone();
-    assert!(photo_url.starts_with("/media/"));
     let photo_key = state.media_storage_key(photo_id).await.unwrap();
+    assert_eq!(
+        photo_url,
+        format!("{}/{photo_key}", state.media_base_url()),
+        "photos are read from the bucket host, not from the API"
+    );
     assert!(state.storage.exists(&photo_key).await.unwrap());
     let stored = state.storage.get(&photo_key).await.unwrap();
     assert!(stored.bytes.starts_with(&[0x89, b'P', b'N', b'G']));
+    assert_eq!(stored.content_type, "image/png");
     assert!(!stored.bytes.windows(7).any(|window| window == b"<script"));
     assert_eq!(photo_body.width, Some(1));
     assert_eq!(photo_body.height, Some(1));
 
-    let served = reqwest::Client::new()
-        .get(format!("{base}{photo_url}"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(served.status(), StatusCode::OK, "{}", served.status());
-    assert_eq!(
-        served
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok()),
-        Some("image/png")
-    );
-    let served_body = served.bytes().await.unwrap();
-    assert!(served_body.starts_with(&[0x89, b'P', b'N', b'G']));
+    // The API writes and deletes objects; it never streams their bytes back.
     assert_eq!(
         reqwest::Client::new()
-            .get(format!("{base}/media/missing/photo/nope.png"))
+            .get(format!("{base}/media/{photo_key}"))
             .send()
             .await
             .unwrap()
@@ -102,9 +93,11 @@ async fn media_upload_display_and_delete_clears_storage() {
     let audio_body: pb::AudioTrack = decode_response(audio).await;
     let audio_id = audio_body.id;
     let audio_media_id = audio_body.media_id;
-    let audio_src = audio_body.src.clone();
-    assert!(audio_src.starts_with("/media/"));
     let audio_key = state.media_storage_key(audio_media_id).await.unwrap();
+    assert_eq!(
+        audio_body.src,
+        format!("{}/{audio_key}", state.media_base_url())
+    );
 
     let video = upload_named(
         &base,
@@ -144,19 +137,17 @@ async fn media_upload_display_and_delete_clears_storage() {
         avatar.text().await.unwrap()
     );
     let avatar_body: pb::User = decode_response(avatar).await;
-    let avatar_url = avatar_body.avatar_url.as_deref().unwrap();
-    assert!(avatar_url.starts_with("/media/"));
-    let avatar_served = reqwest::Client::new()
-        .get(format!("{base}{avatar_url}"))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(avatar_served.status(), StatusCode::OK);
+    let avatar_url = avatar_body.avatar_url.clone().unwrap();
+    let avatar_key = avatar_url
+        .strip_prefix(&format!("{}/", state.media_base_url()))
+        .expect("avatars live on the bucket host");
     assert!(
-        avatar_served
-            .bytes()
+        state
+            .storage
+            .get(avatar_key)
             .await
             .unwrap()
+            .bytes
             .starts_with(&[0x89, b'P', b'N', b'G'])
     );
 
@@ -173,16 +164,6 @@ async fn media_upload_display_and_delete_clears_storage() {
         StatusCode::NO_CONTENT
     );
     assert!(!state.storage.exists(&photo_key).await.unwrap());
-    assert_eq!(
-        reqwest::Client::new()
-            .get(format!("{base}{photo_url}"))
-            .header(AUTHORIZATION, format!("Bearer {token}"))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::NOT_FOUND
-    );
 
     assert_eq!(
         reqwest::Client::new()
@@ -196,16 +177,6 @@ async fn media_upload_display_and_delete_clears_storage() {
         StatusCode::NO_CONTENT
     );
     assert!(!state.storage.exists(&audio_key).await.unwrap());
-    assert_eq!(
-        reqwest::Client::new()
-            .get(format!("{base}{audio_src}"))
-            .header(AUTHORIZATION, format!("Bearer {token}"))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::NOT_FOUND
-    );
 
     assert_eq!(
         reqwest::Client::new()
@@ -239,7 +210,6 @@ async fn deleting_account_removes_stored_objects() {
     )
     .await;
     let photo_body: pb::Photo = decode_response(photo).await;
-    let photo_url = photo_body.url.clone();
     let media_id = photo_body.id;
     let key = state.media_storage_key(media_id).await.unwrap();
     assert!(state.storage.exists(&key).await.unwrap());
@@ -268,21 +238,6 @@ async fn deleting_account_removes_stored_objects() {
     let login_again = common::login(&base, &login, password).await;
     assert_eq!(login_again.status(), StatusCode::UNAUTHORIZED);
     assert!(!state.storage.exists(&key).await.unwrap());
-
-    let content = reqwest::Client::new()
-        .get(format!("{base}{photo_url}"))
-        .header(AUTHORIZATION, format!("Bearer {token}"))
-        .send()
-        .await
-        .unwrap();
-    assert!(
-        matches!(
-            content.status(),
-            StatusCode::UNAUTHORIZED | StatusCode::NOT_FOUND
-        ),
-        "{}",
-        content.status()
-    );
 }
 
 #[tokio::test]

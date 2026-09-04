@@ -25,6 +25,8 @@ pub struct Photo {
     pub height: Option<i32>,
     pub original_filename: Option<String>,
     pub url: String,
+    pub like_count: i32,
+    pub liked: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -48,6 +50,8 @@ pub struct Video {
     pub status: String,
     pub owner_user_id: i64,
     pub src: Option<String>,
+    pub like_count: i32,
+    pub liked: bool,
 }
 
 #[derive(Deserialize)]
@@ -68,6 +72,7 @@ pub struct UploadPhotoQuery {
 }
 
 pub fn audio_from_row(
+    base_url: &str,
     id: i64,
     media_id: i64,
     artist: String,
@@ -83,11 +88,15 @@ pub fn audio_from_row(
         title,
         duration_ms,
         owner_user_id,
-        src: public_media_url(storage_key),
+        src: public_media_url(base_url, storage_key),
     }
 }
 
-pub fn photo_from_media(album_id: i64, media: &crate::db::entities::media_object::Model) -> Photo {
+pub fn photo_from_media(
+    base_url: &str,
+    album_id: i64,
+    media: &crate::db::entities::media_object::Model,
+) -> Photo {
     Photo {
         id: media.id,
         album_id,
@@ -97,11 +106,14 @@ pub fn photo_from_media(album_id: i64, media: &crate::db::entities::media_object
         width: media.width,
         height: media.height,
         original_filename: media.original_filename.clone(),
-        url: public_media_url(&media.storage_key),
+        url: public_media_url(base_url, &media.storage_key),
+        like_count: 0,
+        liked: false,
     }
 }
 
 pub fn video_from_row(
+    base_url: &str,
     id: i64,
     media_id: Option<i64>,
     title: String,
@@ -112,11 +124,13 @@ pub fn video_from_row(
 ) -> Video {
     Video {
         id,
-        src: storage_key.map(public_media_url),
+        src: storage_key.map(|key| public_media_url(base_url, key)),
         media_id,
         title,
         description,
         status,
         owner_user_id,
+        like_count: 0,
+        liked: false,
     }
 }

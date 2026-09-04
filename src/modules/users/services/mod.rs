@@ -74,6 +74,12 @@ pub async fn replace_cached_user(state: &AppState, user: User) {
     cache::cache_user(&state.redis, &state.vault, user.id, &user).await;
 }
 
+pub async fn reload(state: &AppState, id: i64) -> Result<User, AppError> {
+    state.caches.users.invalidate(&id).await;
+    cache::invalidate_user(&state.redis, id).await;
+    get_profile(state, id).await
+}
+
 pub async fn delete_account(
     state: &AppState,
     id: i64,

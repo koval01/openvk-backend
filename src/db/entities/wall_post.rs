@@ -10,6 +10,11 @@ pub struct Model {
     pub author_id: i64,
     pub group_id: Option<i64>,
     pub content: String,
+    pub geo_lat: Option<f64>,
+    pub geo_lng: Option<f64>,
+    pub geo_name: Option<String>,
+    pub source: Option<String>,
+    pub nsfw: bool,
     pub created_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,
 }

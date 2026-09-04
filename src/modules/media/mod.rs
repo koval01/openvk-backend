@@ -1,3 +1,4 @@
+pub mod default_avatar;
 pub mod handlers;
 pub mod inspect;
 pub mod kinds;

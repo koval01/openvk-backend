@@ -12,6 +12,7 @@ pub struct Model {
     pub owner_id: i64,
     pub avatar_key: Option<String>,
     pub wall_open: bool,
+    pub wall_seq: i64,
     pub created_at: DateTimeUtc,
 }
 

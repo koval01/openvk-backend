@@ -1,6 +1,8 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+use crate::trace;
+
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("configuration error: {0}")]
@@ -15,6 +17,8 @@ pub enum AppError {
     Unauthorized,
     #[error("forbidden")]
     Forbidden,
+    #[error("{0}")]
+    Banned(String),
     #[error("not found")]
     NotFound,
     #[error("rate limited")]
@@ -30,8 +34,19 @@ pub enum AppError {
 impl AppError {
     pub fn internal(message: impl Into<String>) -> Self {
         let message = message.into();
-        tracing::error!(%message, "internal error");
+        if let Some(trace_id) = trace::current() {
+            tracing::error!(%message, %trace_id, "internal error");
+        } else {
+            tracing::error!(%message, "internal error");
+        }
         Self::Internal(message)
+    }
+
+    fn is_internal(&self) -> bool {
+        matches!(
+            self,
+            Self::Config(_) | Self::Database(_) | Self::Redis(_) | Self::Io(_) | Self::Internal(_)
+        )
     }
 }
 
@@ -40,6 +55,7 @@ impl IntoResponse for AppError {
         let (status, error, public_message) = match &self {
             Self::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized", self.to_string()),
             Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden", self.to_string()),
+            Self::Banned(message) => (StatusCode::FORBIDDEN, "banned", message.clone()),
             Self::NotFound => (StatusCode::NOT_FOUND, "not_found", self.to_string()),
             Self::RateLimited => (
                 StatusCode::TOO_MANY_REQUESTS,
@@ -58,21 +74,26 @@ impl IntoResponse for AppError {
             | Self::Database(_)
             | Self::Redis(_)
             | Self::Io(_)
-            | Self::Internal(_) => {
-                tracing::error!(error = %self, "request failed");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "internal_error",
-                    "internal error".to_owned(),
-                )
-            }
+            | Self::Internal(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal_error",
+                "internal error".to_owned(),
+            ),
         };
+
+        let trace_id = trace::current().unwrap_or_default();
+        if self.is_internal() {
+            tracing::error!(error = %self, %trace_id, status = status.as_u16(), "request failed");
+        } else {
+            tracing::debug!(error = %self, %trace_id, status = status.as_u16(), "request rejected");
+        }
 
         crate::codec::protobuf_response(
             status,
             &crate::pb::Error {
                 error: error.to_owned(),
                 message: public_message,
+                trace_id: trace_id.to_string(),
             },
         )
     }

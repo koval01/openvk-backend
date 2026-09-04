@@ -47,6 +47,60 @@ impl<'a> MessageRepository<'a> {
             .collect()
     }
 
+    pub async fn list_inbox(&self, user_id: i64) -> Result<Vec<Message>, AppError> {
+        let sql = "
+            SELECT
+                c.id,
+                peer.user_id,
+                m.id,
+                m.author_id,
+                m.content,
+                m.created_at
+            FROM conversations c
+            JOIN conversation_members me
+                ON me.conversation_id = c.id AND me.user_id = $1
+            JOIN conversation_members peer
+                ON peer.conversation_id = c.id AND peer.user_id <> $1
+            JOIN LATERAL (
+                SELECT id, author_id, content, created_at
+                FROM messages
+                WHERE conversation_id = c.id AND deleted_at IS NULL
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) m ON true
+            WHERE c.kind = 'direct'
+            ORDER BY m.created_at DESC
+            LIMIT 50
+        ";
+        let rows = self
+            .db
+            .query_all_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                sql,
+                [user_id.into()],
+            ))
+            .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            let conversation_id: i64 = row.try_get_by_index(0).map_err(sea_orm::DbErr::from)?;
+            let peer_id: i64 = row.try_get_by_index(1).map_err(sea_orm::DbErr::from)?;
+            let id: i64 = row.try_get_by_index(2).map_err(sea_orm::DbErr::from)?;
+            let author_id: i64 = row.try_get_by_index(3).map_err(sea_orm::DbErr::from)?;
+            let content: String = row.try_get_by_index(4).map_err(sea_orm::DbErr::from)?;
+            let created_at: chrono::DateTime<Utc> =
+                row.try_get_by_index(5).map_err(sea_orm::DbErr::from)?;
+            let dek = self.conversation_dek(conversation_id, user_id).await?;
+            out.push(Message {
+                id,
+                peer_id,
+                author_id,
+                text: Vault::decrypt_message(&dek, conversation_id, &content)?,
+                created_at,
+            });
+        }
+        Ok(out)
+    }
+
     pub async fn send(
         &self,
         author_id: i64,

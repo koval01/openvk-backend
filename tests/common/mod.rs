@@ -44,17 +44,14 @@ pub async fn start_app_with_turnstile_secret(secret: &str) -> (String, AppState)
     .await
 }
 
-async fn start_app_with_config(configure: impl FnOnce(&mut Config)) -> (String, AppState) {
+pub async fn start_app_with_config(configure: impl FnOnce(&mut Config)) -> (String, AppState) {
     dotenvy::dotenv().ok();
     let mut config = Config::from_env().expect("config");
-    config.storage_backend = StorageBackend::Disk;
-    config.media_root = std::env::temp_dir().join(format!(
-        "openvk-media-{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos()
-    ));
+    // Tests never touch a disk or a bucket: objects live in process memory and
+    // public URLs point at a bucket host that is never called.
+    config.storage_backend = StorageBackend::Memory;
+    config.media_public_base_url = String::from("https://media.openvk.test");
+    config.dicebear_url = None;
     configure(&mut config);
     let state = AppState::connect(config).await.expect("app state");
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");

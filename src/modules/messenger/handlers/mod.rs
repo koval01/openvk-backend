@@ -24,7 +24,11 @@ pub async fn list(
     auth: AuthUser,
     Query(query): Query<ListQuery>,
 ) -> Result<Proto<pb::MessageList>, AppError> {
-    let peer_id = query.peer_id.unwrap_or(auth.user_id);
+    let Some(peer_id) = query.peer_id else {
+        return Ok(Proto(codec::messages_to_pb(
+            services::list_inbox(&state, auth.user_id).await?,
+        )));
+    };
     Ok(Proto(codec::messages_to_pb(
         services::list_thread(&state, auth.user_id, peer_id).await?,
     )))

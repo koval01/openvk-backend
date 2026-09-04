@@ -1,17 +1,28 @@
 use std::env;
-use std::fs;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
-use std::path::PathBuf;
 use std::str::FromStr;
 
 use crate::error::AppError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StorageBackend {
+    /// Process memory. Nothing survives a restart; local development only.
     Memory,
-    Disk,
-    R2,
+    /// Any S3 API: Cloudflare R2, Silo, `MinIO`.
+    S3,
+}
+
+/// Credentials and addressing for the S3 API.
+/// R2 wants virtual-hosted requests, Silo and `MinIO` want path style.
+#[derive(Clone, Debug)]
+pub struct S3Config {
+    pub endpoint: String,
+    pub bucket: String,
+    pub region: String,
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub path_style: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -26,15 +37,19 @@ pub struct Config {
     pub db_min_connections: u32,
     pub rate_limit_per_minute: NonZeroU32,
     pub storage_backend: StorageBackend,
-    pub media_root: PathBuf,
-    pub cloudflare_account_id: Option<String>,
-    pub cloudflare_api_token: Option<String>,
-    pub r2_bucket: Option<String>,
+    pub s3: Option<S3Config>,
+    /// Where the public reads objects: the nginx or CDN host in front of the bucket.
+    pub media_public_base_url: String,
     pub max_upload_bytes: u64,
     pub turnstile_secret_key: String,
     pub turnstile_siteverify_url: String,
     pub cookie_secure: bool,
+    /// DiceBear template with `{seed}`. Empty / `off` skips generated avatars.
+    pub dicebear_url: Option<String>,
 }
+
+/// Notionists SVG. `{seed}` is replaced with the user id on first save.
+pub(crate) const DICEBEAR_DEFAULT_URL: &str = "https://api.dicebear.com/10.x/notionists/svg?backgroundColor=ececed&inkColor=3b3d42&paperColor=fafafa&seed={seed}";
 
 impl Config {
     pub fn from_env() -> Result<Self, AppError> {
@@ -43,29 +58,23 @@ impl Config {
         let listen_addr = SocketAddr::from_str(&format!("{host}:{port}"))
             .map_err(|err| AppError::Config(format!("invalid HOST/PORT: {err}")))?;
 
-        let cloudflare_account_id = env_optional("CLOUDFLARE_ACCOUNT_ID");
-        let r2_bucket = env_optional("R2_BUCKET").or_else(|| env_optional("S3_BUCKET"));
-        let cloudflare_api_token =
-            env_optional("CLOUDFLARE_API_TOKEN").or_else(read_wrangler_oauth_token);
-        let requested_backend = env_or("STORAGE_BACKEND", "disk").to_ascii_lowercase();
+        let s3 = s3_from_env()?;
+        let requested_backend = env_optional("STORAGE_BACKEND")
+            .unwrap_or_else(|| if s3.is_some() { "s3" } else { "memory" }.to_owned())
+            .to_ascii_lowercase();
         let storage_backend = match requested_backend.as_str() {
             "memory" => StorageBackend::Memory,
-            "disk" | "filesystem" | "local" | "auto" => StorageBackend::Disk,
-            "r2" | "s3" => StorageBackend::R2,
+            "s3" | "r2" | "silo" | "minio" => StorageBackend::S3,
             other => {
                 return Err(AppError::Config(format!(
-                    "invalid STORAGE_BACKEND '{other}', expected disk, memory, or r2"
+                    "invalid STORAGE_BACKEND '{other}', expected s3 or memory"
                 )));
             }
         };
 
-        if storage_backend == StorageBackend::R2
-            && (r2_bucket.is_none()
-                || cloudflare_account_id.is_none()
-                || cloudflare_api_token.is_none())
-        {
+        if storage_backend == StorageBackend::S3 && s3.is_none() {
             return Err(AppError::Config(
-                "R2 storage requires CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, and R2_BUCKET"
+                "S3 storage requires S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY"
                     .into(),
             ));
         }
@@ -91,11 +100,8 @@ impl Config {
             rate_limit_per_minute: NonZeroU32::new(env_parse("RATE_LIMIT_PER_MINUTE", 120_u32)?)
                 .unwrap_or(NonZeroU32::MIN),
             storage_backend,
-            media_root: env_optional("MEDIA_ROOT")
-                .map_or_else(|| PathBuf::from("data/media"), PathBuf::from),
-            cloudflare_account_id,
-            cloudflare_api_token,
-            r2_bucket,
+            media_public_base_url: media_public_base_url(s3.as_ref()),
+            s3,
             max_upload_bytes: env_parse("MAX_UPLOAD_BYTES", 52_428_800_u64)?,
             turnstile_secret_key: env_or(
                 "TURNSTILE_SECRET_KEY",
@@ -109,6 +115,7 @@ impl Config {
                 env_or("COOKIE_SECURE", "0").to_ascii_lowercase().as_str(),
                 "1" | "true" | "yes"
             ),
+            dicebear_url: dicebear_url_from_env(),
         })
     }
 }
@@ -117,9 +124,79 @@ fn env_or(key: &str, default: &str) -> String {
     env::var(key).unwrap_or_else(|_| default.to_owned())
 }
 
+impl S3Config {
+    /// The bucket's own address, used when no nginx or CDN sits in front of it.
+    fn direct_base_url(&self) -> String {
+        if self.path_style {
+            return format!("{}/{}", self.endpoint, self.bucket);
+        }
+        match self.endpoint.split_once("://") {
+            Some((scheme, host)) => format!("{scheme}://{}.{host}", self.bucket),
+            None => format!("{}/{}", self.endpoint, self.bucket),
+        }
+    }
+}
+
+/// Present only when the whole credential set is there. A half-filled S3 block is
+/// an error rather than a silent fallback: uploads would vanish into memory.
+fn s3_from_env() -> Result<Option<S3Config>, AppError> {
+    let endpoint = env_optional("S3_ENDPOINT");
+    let bucket = env_optional("S3_BUCKET").or_else(|| env_optional("R2_BUCKET"));
+    let access_key_id = env_optional("S3_ACCESS_KEY_ID").or_else(|| env_optional("S3_ACCESS_KEY"));
+    let secret_access_key =
+        env_optional("S3_SECRET_ACCESS_KEY").or_else(|| env_optional("S3_SECRET_KEY"));
+
+    let provided = [&endpoint, &bucket, &access_key_id, &secret_access_key]
+        .into_iter()
+        .filter(|value| value.is_some())
+        .count();
+    if provided == 0 {
+        return Ok(None);
+    }
+
+    let (Some(endpoint), Some(bucket), Some(access_key_id), Some(secret_access_key)) =
+        (endpoint, bucket, access_key_id, secret_access_key)
+    else {
+        return Err(AppError::Config(
+            "incomplete S3 configuration: S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are all required".into(),
+        ));
+    };
+
+    if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+        return Err(AppError::Config(format!(
+            "S3_ENDPOINT must start with http:// or https://, got '{endpoint}'"
+        )));
+    }
+
+    Ok(Some(S3Config {
+        endpoint: endpoint.trim_end_matches('/').to_owned(),
+        bucket,
+        region: env_or("S3_REGION", "auto"),
+        access_key_id,
+        secret_access_key,
+        path_style: env_flag("S3_PATH_STYLE", true),
+    }))
+}
+
+fn media_public_base_url(s3: Option<&S3Config>) -> String {
+    env_optional("MEDIA_PUBLIC_BASE_URL").map_or_else(
+        || s3.map_or_else(|| "/media".to_owned(), S3Config::direct_base_url),
+        |base| base.trim_end_matches('/').to_owned(),
+    )
+}
+
+fn env_flag(key: &str, default: bool) -> bool {
+    env_optional(key).map_or(default, |value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
+}
+
 /// `localhost`, `127.0.0.1`, and `[::1]` are the same browser machine.
 /// Browsers send the host as typed, so a CORS list with only 127.0.0.1
-/// would 403 logins from http://localhost:5173.
+/// would 403 logins from <http://localhost:5173>.
 fn expand_loopback_origins(origins: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut expanded = Vec::new();
     for origin in origins {
@@ -149,6 +226,23 @@ fn loopback_aliases(origin: &str) -> Vec<String> {
     vec![origin.to_owned()]
 }
 
+fn dicebear_url_from_env() -> Option<String> {
+    parse_dicebear_url(&env_or("DICEBEAR_URL", DICEBEAR_DEFAULT_URL))
+}
+
+fn parse_dicebear_url(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty()
+        || matches!(
+            value.to_ascii_lowercase().as_str(),
+            "0" | "off" | "false" | "no"
+        )
+    {
+        return None;
+    }
+    Some(value.to_owned())
+}
+
 fn env_optional(key: &str) -> Option<String> {
     env::var(key)
         .ok()
@@ -169,60 +263,52 @@ where
     }
 }
 
-fn read_wrangler_oauth_token() -> Option<String> {
-    let home = env::var("HOME").ok().map(PathBuf::from)?;
-    let candidates = [
-        home.join("Library/Preferences/.wrangler/config/default.toml"),
-        home.join(".config/.wrangler/config/default.toml"),
-        home.join(".wrangler/config/default.toml"),
-    ];
-    for path in candidates {
-        if let Ok(text) = fs::read_to_string(path)
-            && let Some(token) = toml_string_value(&text, "oauth_token")
-        {
-            return Some(token);
-        }
-    }
-    None
-}
-
-fn toml_string_value(source: &str, key: &str) -> Option<String> {
-    for line in source.lines() {
-        let line = line.trim();
-        let Some((found_key, value)) = line.split_once('=') else {
-            continue;
-        };
-        if found_key.trim() != key {
-            continue;
-        }
-        let value = value.trim().trim_matches('"').trim();
-        if !value.is_empty() {
-            return Some(value.to_owned());
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{StorageBackend, toml_string_value};
+    use super::{S3Config, StorageBackend};
 
-    #[test]
-    fn parses_wrangler_oauth_token() {
-        let source = "oauth_token = \"abc.def\"\nexpiration_time = \"2026-01-01\"";
-        assert_eq!(
-            toml_string_value(source, "oauth_token").as_deref(),
-            Some("abc.def")
-        );
+    fn s3(path_style: bool) -> S3Config {
+        S3Config {
+            endpoint: "https://silo.example.net".into(),
+            bucket: "openvk".into(),
+            region: "auto".into(),
+            access_key_id: "key".into(),
+            secret_access_key: "secret".into(),
+            path_style,
+        }
     }
 
     #[test]
     fn storage_backend_equality() {
-        assert_eq!(StorageBackend::R2, StorageBackend::R2);
-        assert_ne!(StorageBackend::R2, StorageBackend::Disk);
+        assert_eq!(StorageBackend::S3, StorageBackend::S3);
+        assert_ne!(StorageBackend::S3, StorageBackend::Memory);
     }
 
     #[test]
+    fn bucket_address_follows_the_addressing_style() {
+        assert_eq!(
+            s3(true).direct_base_url(),
+            "https://silo.example.net/openvk"
+        );
+        assert_eq!(
+            s3(false).direct_base_url(),
+            "https://openvk.silo.example.net"
+        );
+    }
+
+    #[test]
+    #[test]
+    fn dicebear_url_off_disables_generation() {
+        assert_eq!(super::parse_dicebear_url("off"), None);
+        assert_eq!(super::parse_dicebear_url("0"), None);
+        assert_eq!(super::parse_dicebear_url("false"), None);
+        assert_eq!(super::parse_dicebear_url("  "), None);
+        assert_eq!(
+            super::parse_dicebear_url(super::DICEBEAR_DEFAULT_URL).as_deref(),
+            Some(super::DICEBEAR_DEFAULT_URL)
+        );
+    }
+
     fn loopback_cors_aliases_localhost() {
         let expanded = super::expand_loopback_origins(["http://127.0.0.1:5173".to_owned()]);
         assert!(expanded.contains(&"http://127.0.0.1:5173".to_owned()));

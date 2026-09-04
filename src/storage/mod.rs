@@ -1,11 +1,15 @@
-mod disk;
 mod memory;
-mod r2;
+mod s3;
 
 use bytes::Bytes;
+use futures_util::stream::{self, StreamExt, TryStreamExt};
 
 use crate::config::{Config, StorageBackend};
 use crate::error::AppError;
+
+/// Deleting an album means deleting every photo in it; a little concurrency
+/// keeps that from turning into a long serial round trip per object.
+const DELETE_CONCURRENCY: usize = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ObjectBody {
@@ -16,8 +20,7 @@ pub struct ObjectBody {
 #[derive(Clone)]
 pub enum Storage {
     Memory(memory::MemoryStore),
-    Disk(disk::DiskStore),
-    R2(r2::R2Store),
+    S3(s3::S3Store),
 }
 
 pub fn validate_storage_key(key: &str) -> Result<(), AppError> {
@@ -45,10 +48,12 @@ impl Storage {
     pub fn from_config(config: &Config) -> Result<Self, AppError> {
         match config.storage_backend {
             StorageBackend::Memory => Ok(Self::memory()),
-            StorageBackend::Disk => {
-                Ok(Self::Disk(disk::DiskStore::new(config.media_root.clone())?))
+            StorageBackend::S3 => {
+                let s3 = config.s3.clone().ok_or_else(|| {
+                    AppError::Config("S3 storage is selected but not configured".into())
+                })?;
+                Ok(Self::S3(s3::S3Store::new(s3)?))
             }
-            StorageBackend::R2 => Ok(Self::R2(r2::R2Store::from_config(config)?)),
         }
     }
 
@@ -56,47 +61,56 @@ impl Storage {
     pub const fn backend_name(&self) -> &'static str {
         match self {
             Self::Memory(_) => "memory",
-            Self::Disk(_) => "disk",
-            Self::R2(_) => "r2",
+            Self::S3(_) => "s3",
+        }
+    }
+
+    /// The bucket objects land in, for the startup log. Memory has none.
+    #[must_use]
+    pub fn bucket(&self) -> Option<&str> {
+        match self {
+            Self::Memory(_) => None,
+            Self::S3(store) => Some(store.bucket()),
         }
     }
 
     pub async fn put(&self, key: &str, bytes: Bytes, content_type: &str) -> Result<(), AppError> {
         match self {
             Self::Memory(store) => store.put(key, bytes, content_type).await,
-            Self::Disk(store) => store.put(key, bytes, content_type).await,
-            Self::R2(store) => store.put(key, bytes, content_type).await,
+            Self::S3(store) => store.put(key, bytes, content_type).await,
         }
     }
 
     pub async fn get(&self, key: &str) -> Result<ObjectBody, AppError> {
         match self {
             Self::Memory(store) => store.get(key).await,
-            Self::Disk(store) => store.get(key).await,
-            Self::R2(store) => store.get(key).await,
+            Self::S3(store) => store.get(key).await,
         }
     }
 
     pub async fn delete(&self, key: &str) -> Result<(), AppError> {
         match self {
             Self::Memory(store) => store.delete(key).await,
-            Self::Disk(store) => store.delete(key).await,
-            Self::R2(store) => store.delete(key).await,
+            Self::S3(store) => store.delete(key).await,
         }
     }
 
     pub async fn exists(&self, key: &str) -> Result<bool, AppError> {
         match self {
             Self::Memory(store) => store.exists(key).await,
-            Self::Disk(store) => store.exists(key).await,
-            Self::R2(store) => store.exists(key).await,
+            Self::S3(store) => store.exists(key).await,
         }
     }
 
     pub async fn delete_keys(&self, keys: &[String]) -> Result<(), AppError> {
+        let mut deletions = Vec::with_capacity(keys.len());
         for key in keys {
-            self.delete(key).await?;
+            deletions.push(self.delete(key));
         }
+        stream::iter(deletions)
+            .buffer_unordered(DELETE_CONCURRENCY)
+            .try_collect::<Vec<()>>()
+            .await?;
         Ok(())
     }
 }
@@ -123,25 +137,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disk_roundtrip_and_delete() {
-        let root = std::env::temp_dir().join(format!(
-            "openvk-disk-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("time")
-                .as_nanos()
-        ));
-        let storage = Storage::Disk(super::disk::DiskStore::new(root.clone()).unwrap());
-        storage
-            .put("9/photo/a.png", Bytes::from_static(b"png"), "image/png")
-            .await
-            .unwrap();
-        let got = storage.get("9/photo/a.png").await.unwrap();
-        assert_eq!(got.bytes.as_ref(), b"png");
-        assert!(storage.exists("9/photo/a.png").await.unwrap());
-        storage.delete("9/photo/a.png").await.unwrap();
-        assert!(!storage.exists("9/photo/a.png").await.unwrap());
-        let _ = std::fs::remove_dir_all(root);
+    async fn delete_keys_clears_every_object() {
+        let storage = Storage::memory();
+        let keys: Vec<String> = (0..20).map(|n| format!("9/photo/{n}.png")).collect();
+        for key in &keys {
+            storage
+                .put(key, Bytes::from_static(b"png"), "image/png")
+                .await
+                .unwrap();
+        }
+        storage.delete_keys(&keys).await.unwrap();
+        for key in &keys {
+            assert!(!storage.exists(key).await.unwrap());
+        }
     }
 
     #[test]

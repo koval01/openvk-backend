@@ -121,6 +121,96 @@ pub async fn demo_accounts(db: &DatabaseConnection, vault: &Vault) -> Result<(),
 
     db.execute_unprepared(&format!(
         "
+        UPDATE users SET
+            role = CASE login
+                WHEN 'id1' THEN 'admin'
+                WHEN 'pavel' THEN 'agent'
+                ELSE role
+            END,
+            coins = CASE login
+                WHEN 'id1' THEN GREATEST(coins, 500)
+                WHEN 'anna' THEN GREATEST(coins, 80)
+                WHEN 'pavel' THEN GREATEST(coins, 20)
+                ELSE coins
+            END
+        WHERE login IN ('id1', 'anna', 'pavel')
+        "
+    ))
+    .await?;
+
+    db.execute_unprepared(
+        "
+        INSERT INTO gift_categories (id, slug, name, description, sort)
+        VALUES (1, 'classic', 'Классика', 'Подарки 2007 года', 1)
+        ON CONFLICT (id) DO NOTHING
+        ",
+    )
+    .await?;
+    db.execute_unprepared(
+        "
+        SELECT setval(
+            pg_get_serial_sequence('gift_categories', 'id'),
+            GREATEST(1, COALESCE((SELECT MAX(id) FROM gift_categories), 1))
+        )
+        ",
+    )
+    .await?;
+    db.execute_unprepared(
+        "
+        INSERT INTO gifts (id, category_id, name, description, price, image_url) VALUES
+            (1, 1, 'Сердце', 'Классический подарок', 5, '/assets/gifts/heart.svg'),
+            (2, 1, 'Звезда', 'За заслуги', 15, '/assets/gifts/star.svg'),
+            (3, 1, 'Торт', 'С праздником', 25, '/assets/gifts/cake.svg')
+        ON CONFLICT (id) DO NOTHING
+        ",
+    )
+    .await?;
+    db.execute_unprepared(
+        "
+        SELECT setval(
+            pg_get_serial_sequence('gifts', 'id'),
+            GREATEST(3, COALESCE((SELECT MAX(id) FROM gifts), 3))
+        )
+        ",
+    )
+    .await?;
+    db.execute_unprepared(
+        "
+        INSERT INTO vouchers (id, serial, coins, remaining, total)
+        VALUES (1, 'AAAAAA-BBBBBB-CCCCCC-DDDDDD', 25, 10, 10)
+        ON CONFLICT (serial) DO NOTHING
+        ",
+    )
+    .await?;
+    db.execute_unprepared(
+        "
+        SELECT setval(
+            pg_get_serial_sequence('vouchers', 'id'),
+            GREATEST(1, COALESCE((SELECT MAX(id) FROM vouchers), 1))
+        )
+        ",
+    )
+    .await?;
+    db.execute_unprepared(
+        "
+        INSERT INTO banned_links (id, url, reason)
+        VALUES (1, 'https://evil.example/spam', 'Фишинг и спам')
+        ON CONFLICT (id) DO NOTHING
+        ",
+    )
+    .await?;
+    db.execute_unprepared(
+        "
+        SELECT setval(
+            pg_get_serial_sequence('banned_links', 'id'),
+            GREATEST(1, COALESCE((SELECT MAX(id) FROM banned_links), 1))
+        )
+        ",
+    )
+    .await?;
+
+    db.execute_unprepared(&format!(
+        "
         INSERT INTO group_members (group_id, user_id, role, status) VALUES
             ({group_id}, {id1}, 'owner', 'active'),
             ({group_id}, {anna}, 'member', 'active'),
@@ -145,6 +235,29 @@ pub async fn demo_accounts(db: &DatabaseConnection, vault: &Vault) -> Result<(),
             .await?;
         db.execute_unprepared(&format!(
             "UPDATE users SET wall_seq = GREATEST(wall_seq, 1) WHERE id = {anna}"
+        ))
+        .await?;
+    }
+
+    let club_wall = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT COUNT(*) FROM wall_posts WHERE group_id = $1 AND deleted_at IS NULL",
+            [group_id.into()],
+        ))
+        .await?
+        .and_then(|row| row.try_get_by_index::<i64>(0).ok())
+        .unwrap_or(0);
+    if club_wall == 0 {
+        db.execute_unprepared(&format!(
+            "
+            INSERT INTO wall_posts (target_id, author_id, group_id, content, local_id)
+            VALUES (-{group_id}, {id1}, {group_id}, 'Club guestbook is open — leave a note.', 1)
+            "
+        ))
+        .await?;
+        db.execute_unprepared(&format!(
+            "UPDATE groups SET wall_seq = GREATEST(wall_seq, 1) WHERE id = {group_id}"
         ))
         .await?;
     }

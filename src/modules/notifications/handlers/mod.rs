@@ -1,4 +1,5 @@
 use axum::extract::State;
+use axum::http::StatusCode;
 
 use crate::codec::{self, Proto};
 use crate::error::AppError;
@@ -14,4 +15,12 @@ pub async fn list(
     Ok(Proto(codec::notifications_to_pb(
         services::list(&state, auth.user_id).await?,
     )))
+}
+
+pub async fn mark_seen(
+    State(state): State<AppState>,
+    auth: AuthUser,
+) -> Result<StatusCode, AppError> {
+    services::mark_seen(&state, auth.user_id).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

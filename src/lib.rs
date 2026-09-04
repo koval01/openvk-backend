@@ -26,17 +26,19 @@ pub mod pb;
 pub(crate) mod security;
 pub(crate) mod state;
 pub(crate) mod storage;
+pub(crate) mod trace;
 pub(crate) mod turnstile;
 pub(crate) mod vault;
 
 pub use crate::codec::{PROTOBUF_MIME, decode as decode_pb, encode as encode_pb};
-pub use crate::config::{Config, StorageBackend};
+pub use crate::config::{Config, S3Config, StorageBackend};
 pub use crate::error::AppError;
 pub use crate::identity::{BUILD_HEADER, BUILD_ID, INSTANCE_HEADER};
 pub use crate::ids::{PUBLIC_ID_MAX, PUBLIC_ID_MIN, is_public_id, wall_permalink};
 pub use crate::security::{ChallengeResponse, seal_fields};
 pub use crate::state::AppState;
 pub use crate::storage::Storage;
+pub use crate::trace::{SERVER_TIMING_HEADER, TRACE_HEADER, TraceId};
 pub use crate::turnstile::{
     DUMMY_FAIL_SECRET, DUMMY_PASS_SECRET, DUMMY_SPENT_SECRET, DUMMY_TOKEN, SITEVERIFY_URL,
     Turnstile,
@@ -101,7 +103,7 @@ fn cors_layer(origins: &[String]) -> CorsLayer {
         header::ACCEPT,
         header::COOKIE,
         header::RANGE,
-        HeaderName::from_static("x-request-id"),
+        crate::trace::TRACE_HEADER,
         HeaderName::from_static("x-csrf-token"),
         HeaderName::from_static("x-openvk-challenge"),
     ];
@@ -111,7 +113,8 @@ fn cors_layer(origins: &[String]) -> CorsLayer {
         header::CONTENT_LENGTH,
         crate::identity::BUILD_HEADER,
         crate::identity::INSTANCE_HEADER,
-        HeaderName::from_static("x-request-id"),
+        crate::trace::TRACE_HEADER,
+        crate::trace::SERVER_TIMING_HEADER,
     ];
 
     if origins.iter().any(|origin| origin == "*") {
@@ -141,11 +144,17 @@ fn cors_layer(origins: &[String]) -> CorsLayer {
 }
 
 pub async fn serve(state: AppState) -> Result<(), AppError> {
+    if let Err(error) = crate::modules::media::default_avatar::backfill(&state).await {
+        tracing::warn!(%error, "default avatar backfill failed");
+    }
     let listen_addr = state.config.listen_addr;
     tracing::info!(
         %listen_addr,
         build = crate::identity::BUILD_ID,
         instance = state.identity.instance_id(),
+        storage = state.storage.backend_name(),
+        bucket = state.storage.bucket().unwrap_or("-"),
+        media = %state.config.media_public_base_url,
         "openvk-backend listening"
     );
     let app = build_router(state);

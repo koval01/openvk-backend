@@ -14,6 +14,7 @@ enum PrivacyLevel {
 message Error {
   string error = 1;
   string message = 2;
+  string trace_id = 3;
 }
 
 message Health {
@@ -66,6 +67,18 @@ message User {
   PrivacyLevel privacy_photos = 13;
   PrivacyLevel privacy_audio = 14;
   string created_at = 15;
+  PrivacyLevel privacy_profile = 16;
+  PrivacyLevel privacy_friends = 17;
+  int64 coins = 18;
+  int32 rating = 19;
+  string role = 20;
+  bool banned = 21;
+  optional string ban_reason = 22;
+  optional string banned_until = 23;
+  bool support_banned = 24;
+  optional string support_ban_reason = 25;
+  bool posting_allowed = 26;
+  bool messaging_allowed = 27;
 }
 
 message UserList {
@@ -80,6 +93,26 @@ message UpdateAccount {
   optional string city = 5;
   PrivacyLevel privacy_wall = 6;
   PrivacyLevel privacy_messages = 7;
+  PrivacyLevel privacy_photos = 8;
+  PrivacyLevel privacy_audio = 9;
+  PrivacyLevel privacy_profile = 10;
+  PrivacyLevel privacy_friends = 11;
+  optional string status = 12;
+}
+
+message GeoPoint {
+  double lat = 1;
+  double lng = 2;
+  string name = 3;
+}
+
+message WallAttachment {
+  string kind = 1;
+  int64 owner_id = 2;
+  int64 object_id = 3;
+  string url = 4;
+  string title = 5;
+  string src = 6;
 }
 
 message WallPost {
@@ -91,6 +124,14 @@ message WallPost {
   string content = 6;
   string permalink = 7;
   string created_at = 8;
+  repeated WallAttachment attachments = 9;
+  optional GeoPoint geo = 10;
+  optional string source = 11;
+  bool nsfw = 12;
+  int32 comment_count = 13;
+  optional Group club = 14;
+  int32 like_count = 15;
+  bool liked = 16;
 }
 
 message WallPostList {
@@ -99,6 +140,33 @@ message WallPostList {
 
 message WriteWall {
   string content = 1;
+  repeated WallAttachment attachments = 2;
+  optional GeoPoint geo = 3;
+  optional string source = 4;
+  bool nsfw = 5;
+}
+
+message Comment {
+  int64 id = 1;
+  int64 author_id = 2;
+  User author = 3;
+  string content = 4;
+  string created_at = 5;
+  int32 like_count = 6;
+  bool liked = 7;
+}
+
+message CommentList {
+  repeated Comment comments = 1;
+}
+
+message WriteComment {
+  string content = 1;
+}
+
+message LikeState {
+  bool liked = 1;
+  int32 count = 2;
 }
 
 message Message {
@@ -142,6 +210,8 @@ message Photo {
   optional int32 height = 7;
   optional string original_filename = 8;
   string url = 9;
+  int32 like_count = 10;
+  bool liked = 11;
 }
 
 message Album {
@@ -172,6 +242,8 @@ message Video {
   string status = 5;
   int64 owner_user_id = 6;
   optional string src = 7;
+  int32 like_count = 8;
+  bool liked = 9;
 }
 
 message VideoList {
@@ -186,6 +258,8 @@ message Group {
   string kind = 5;
   int64 owner_id = 6;
   string created_at = 7;
+  optional string avatar_url = 8;
+  int64 members = 9;
 }
 
 message GroupList {
@@ -201,6 +275,8 @@ message Notification {
   string payload_json = 6;
   optional string read_at = 7;
   string created_at = 8;
+  optional User actor = 9;
+  string href = 10;
 }
 
 message NotificationList {
@@ -227,4 +303,217 @@ message InstanceAbout {
   int64 groups = 4;
   int64 wall_posts = 5;
   repeated PopularGroup popular_groups = 6;
+}
+
+message Gift {
+  int64 id = 1;
+  int64 category_id = 2;
+  string name = 3;
+  string description = 4;
+  int64 price = 5;
+  string image_url = 6;
+}
+
+message GiftCategory {
+  int64 id = 1;
+  string slug = 2;
+  string name = 3;
+  string description = 4;
+  repeated Gift gifts = 5;
+}
+
+message GiftCatalog {
+  repeated GiftCategory categories = 1;
+}
+
+message UserGift {
+  int64 id = 1;
+  int64 gift_id = 2;
+  Gift gift = 3;
+  int64 sender_id = 4;
+  optional User sender = 5;
+  int64 receiver_id = 6;
+  optional string caption = 7;
+  bool anonymous = 8;
+  string created_at = 9;
+}
+
+message UserGiftList {
+  repeated UserGift gifts = 1;
+}
+
+message SendGift {
+  int64 gift_id = 1;
+  int64 receiver_id = 2;
+  optional string caption = 3;
+  bool anonymous = 4;
+}
+
+message TicketReply {
+  int64 id = 1;
+  int64 ticket_id = 2;
+  int64 author_id = 3;
+  User author = 4;
+  string content = 5;
+  bool from_agent = 6;
+  string created_at = 7;
+}
+
+message Ticket {
+  int64 id = 1;
+  int64 author_id = 2;
+  User author = 3;
+  string subject = 4;
+  string content = 5;
+  string status = 6;
+  string created_at = 7;
+  repeated TicketReply replies = 8;
+}
+
+message TicketList {
+  repeated Ticket tickets = 1;
+}
+
+message WriteTicket {
+  string subject = 1;
+  string content = 2;
+}
+
+message WriteTicketReply {
+  string content = 1;
+}
+
+message Report {
+  int64 id = 1;
+  int64 author_id = 2;
+  User author = 3;
+  string target_type = 4;
+  int64 target_id = 5;
+  string reason = 6;
+  string status = 7;
+  string created_at = 8;
+}
+
+message ReportList {
+  repeated Report reports = 1;
+}
+
+message WriteReport {
+  string target_type = 1;
+  int64 target_id = 2;
+  string reason = 3;
+  optional int64 owner_id = 4;
+}
+
+message ReportAction {
+  string action = 1;
+  optional string reason = 2;
+}
+
+message Voucher {
+  int64 id = 1;
+  string serial = 2;
+  int64 coins = 3;
+  int32 remaining = 4;
+  int32 total = 5;
+  optional string expires_at = 6;
+}
+
+message VoucherList {
+  repeated Voucher vouchers = 1;
+}
+
+message RedeemVoucher {
+  string serial = 1;
+}
+
+message CreateVoucher {
+  int64 coins = 1;
+  int32 uses = 2;
+}
+
+message TransferCoins {
+  int64 receiver_id = 1;
+  int64 amount = 2;
+  optional string message = 3;
+}
+
+message BannedLink {
+  int64 id = 1;
+  string url = 2;
+  string reason = 3;
+  string created_at = 4;
+}
+
+message BannedLinkList {
+  repeated BannedLink links = 1;
+}
+
+message WriteBannedLink {
+  string url = 1;
+  string reason = 2;
+}
+
+message BanUser {
+  optional string until = 1;
+  string reason = 2;
+}
+
+message WarnUser {
+  string reason = 1;
+}
+
+message Warning {
+  int64 id = 1;
+  int64 user_id = 2;
+  int64 actor_id = 3;
+  string reason = 4;
+  string created_at = 5;
+}
+
+message WarningList {
+  repeated Warning warnings = 1;
+}
+
+message SetLimits {
+  bool posting_allowed = 1;
+  bool messaging_allowed = 2;
+}
+
+message NospamQuery {
+  string query = 1;
+  bool delete_hits = 2;
+  bool ban_authors = 3;
+}
+
+message NospamHit {
+  int64 post_id = 1;
+  int64 target_id = 2;
+  int64 local_id = 3;
+  int64 author_id = 4;
+  string content = 5;
+  string permalink = 6;
+}
+
+message NospamResult {
+  int64 action_id = 1;
+  repeated NospamHit hits = 2;
+  int32 deleted = 3;
+}
+
+message AdminOverview {
+  int64 users = 1;
+  int64 groups = 2;
+  int64 wall_posts = 3;
+  int64 tickets_open = 4;
+  int64 reports_open = 5;
+  int64 banned_users = 6;
+}
+
+message AdminUserList {
+  repeated User users = 1;
+}
+
+message AdminClubList {
+  repeated Group groups = 1;
 }

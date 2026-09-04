@@ -43,6 +43,7 @@ async fn wall_posts_are_sequential_on_one_profile() {
         .headers(proto_headers(&csrf))
         .body(encode_pb(&pb::WriteWall {
             content: "first note on my wall".into(),
+            ..Default::default()
         }))
         .send()
         .await
@@ -59,6 +60,7 @@ async fn wall_posts_are_sequential_on_one_profile() {
         .headers(proto_headers(&csrf))
         .body(encode_pb(&pb::WriteWall {
             content: "second note".into(),
+            ..Default::default()
         }))
         .send()
         .await

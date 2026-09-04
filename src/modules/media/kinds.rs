@@ -182,9 +182,11 @@ pub fn storage_key(owner_user_id: i64, kind: MediaKind, ext: &str) -> String {
     format!("{owner_user_id}/{}/{}.{ext}", kind.as_str(), Uuid::now_v7())
 }
 
+/// Objects are read straight from the bucket host (nginx or CDN), never through the API.
+/// Only the key lives in the database, so moving buckets is a config change.
 #[must_use]
-pub fn public_media_url(storage_key: &str) -> String {
-    format!("/media/{storage_key}")
+pub fn public_media_url(base_url: &str, storage_key: &str) -> String {
+    format!("{}/{storage_key}", base_url.trim_end_matches('/'))
 }
 
 #[cfg(test)]
@@ -222,6 +224,21 @@ mod tests {
         let key = storage_key(9, MediaKind::Audio, "mp3");
         assert!(key.starts_with("9/audio/"));
         assert!(key.contains(".mp3"));
-        assert_eq!(public_media_url(&key), format!("/media/{key}"));
+    }
+
+    #[test]
+    fn public_urls_hang_off_the_configured_bucket_host() {
+        assert_eq!(
+            public_media_url("https://cdn.openvk.test/media", "9/photo/a.png"),
+            "https://cdn.openvk.test/media/9/photo/a.png"
+        );
+        assert_eq!(
+            public_media_url("https://cdn.openvk.test/", "9/photo/a.png"),
+            "https://cdn.openvk.test/9/photo/a.png"
+        );
+        assert_eq!(
+            public_media_url("/media", "9/photo/a.png"),
+            "/media/9/photo/a.png"
+        );
     }
 }

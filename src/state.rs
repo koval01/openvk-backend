@@ -116,16 +116,24 @@ impl AppState {
         })
     }
 
-    pub const fn users(&self) -> UserRepository<'_> {
-        UserRepository::new(&self.db, &self.vault)
+    pub fn users(&self) -> UserRepository<'_> {
+        UserRepository::new(&self.db, &self.vault, self.media_base_url())
+    }
+
+    /// Public read address of the bucket: nginx or a CDN in front of R2 or Silo.
+    pub fn media_base_url(&self) -> &str {
+        &self.config.media_public_base_url
     }
 
     pub async fn media_storage_key(&self, media_id: i64) -> Result<String, AppError> {
         Ok(
-            crate::modules::media::repository::MediaRepository::new(&self.db)
-                .get_media(media_id)
-                .await?
-                .storage_key,
+            crate::modules::media::repository::MediaRepository::new(
+                &self.db,
+                self.media_base_url(),
+            )
+            .get_media(media_id)
+            .await?
+            .storage_key,
         )
     }
 }

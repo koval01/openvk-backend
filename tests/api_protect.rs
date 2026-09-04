@@ -58,6 +58,11 @@ async fn email_phone_and_city_are_ciphertext_in_postgres() {
             city: Some("Novosibirsk".into()),
             privacy_wall: pb::PrivacyLevel::Everyone as i32,
             privacy_messages: pb::PrivacyLevel::Everyone as i32,
+            privacy_photos: pb::PrivacyLevel::Everyone as i32,
+            privacy_audio: pb::PrivacyLevel::Everyone as i32,
+            privacy_profile: pb::PrivacyLevel::Everyone as i32,
+            privacy_friends: pb::PrivacyLevel::Everyone as i32,
+            status: None,
         }))
         .send()
         .await
@@ -117,6 +122,11 @@ async fn login_accepts_the_encrypted_email_address() {
             city: None,
             privacy_wall: pb::PrivacyLevel::Everyone as i32,
             privacy_messages: pb::PrivacyLevel::Everyone as i32,
+            privacy_photos: pb::PrivacyLevel::Everyone as i32,
+            privacy_audio: pb::PrivacyLevel::Everyone as i32,
+            privacy_profile: pb::PrivacyLevel::Everyone as i32,
+            privacy_friends: pb::PrivacyLevel::Everyone as i32,
+            status: None,
         }))
         .send()
         .await
