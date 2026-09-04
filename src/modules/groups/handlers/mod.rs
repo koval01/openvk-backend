@@ -1,0 +1,15 @@
+use axum::extract::State;
+
+use crate::codec::{self, Proto};
+use crate::error::AppError;
+use crate::middleware::auth::AuthUser;
+use crate::modules::groups::services;
+use crate::pb;
+use crate::state::AppState;
+
+pub async fn list(
+    State(state): State<AppState>,
+    _auth: AuthUser,
+) -> Result<Proto<pb::GroupList>, AppError> {
+    Ok(Proto(codec::groups_to_pb(services::list(&state).await?)))
+}

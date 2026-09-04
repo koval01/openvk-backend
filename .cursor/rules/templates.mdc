@@ -1,0 +1,14 @@
+---
+description: OpenVK Latte templates are the UI spec for the Svelte rewrite
+alwaysApply: true
+---
+
+# Templates
+
+UI source of truth: [OpenVK `Web/Presenters/templates`](https://github.com/OpenVK/openvk/tree/master/Web/Presenters/templates). API shapes should feed those pages, not a REST-only UI.
+
+Owner-scoped URLs from the layout: `/id{num}`, `/friends{id}`, `/albums{id}`, `/videos{id}`, `/audios{id}`, `/notes{id}`, `/groups{id}`, `/wall{owner}`, `/wall{owner}_{local}`.
+
+A wall permalink is its own page (post + comments + actions), not a highlight on the profile list. Posts are the 2007 guestbook row (`oldpost`), not the microblog card.
+
+When adding an endpoint for a page, name the Latte it serves and keep permalink fields (`owner`, `local_id`) that those templates already use.

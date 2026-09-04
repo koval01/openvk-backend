@@ -1,0 +1,230 @@
+syntax = "proto3";
+
+package openvk.v1;
+
+// Wire schema for /api/v1 and /ws. Field numbers are the contract.
+
+enum PrivacyLevel {
+  PRIVACY_LEVEL_UNSPECIFIED = 0;
+  PRIVACY_LEVEL_EVERYONE = 1;
+  PRIVACY_LEVEL_FRIENDS = 2;
+  PRIVACY_LEVEL_NOBODY = 3;
+}
+
+message Error {
+  string error = 1;
+  string message = 2;
+}
+
+message Health {
+  string status = 1;
+  bool postgres = 2;
+  bool redis = 3;
+  string version = 4;
+}
+
+message Challenge {
+  string csrf_token = 1;
+  string challenge_id = 2;
+  string nonce = 3;
+  uint64 expires_in = 4;
+  string alg = 5;
+  string public_key = 6;
+}
+
+message AuthRequest {
+  string login = 1;
+  string challenge_id = 2;
+  string password_sealed = 3;
+  string turnstile_token = 4;
+}
+
+message Token {
+  string token = 1;
+  string token_type = 2;
+  int64 user_id = 3;
+}
+
+message SealedPassword {
+  string challenge_id = 1;
+  string password_sealed = 2;
+}
+
+message User {
+  int64 id = 1;
+  string first_name = 2;
+  string last_name = 3;
+  optional string screen_name = 4;
+  optional string status = 5;
+  optional string city = 6;
+  optional string email = 7;
+  optional string phone = 8;
+  optional string avatar_url = 9;
+  bool verified = 10;
+  PrivacyLevel privacy_wall = 11;
+  PrivacyLevel privacy_messages = 12;
+  PrivacyLevel privacy_photos = 13;
+  PrivacyLevel privacy_audio = 14;
+  string created_at = 15;
+}
+
+message UserList {
+  repeated User users = 1;
+}
+
+message UpdateAccount {
+  string first_name = 1;
+  string last_name = 2;
+  optional string email = 3;
+  optional string phone = 4;
+  optional string city = 5;
+  PrivacyLevel privacy_wall = 6;
+  PrivacyLevel privacy_messages = 7;
+}
+
+message WallPost {
+  int64 id = 1;
+  int64 target_id = 2;
+  int64 author_id = 3;
+  User author = 4;
+  User target = 5;
+  string content = 6;
+  string permalink = 7;
+  string created_at = 8;
+}
+
+message WallPostList {
+  repeated WallPost posts = 1;
+}
+
+message WriteWall {
+  string content = 1;
+}
+
+message Message {
+  int64 id = 1;
+  int64 peer_id = 2;
+  int64 author_id = 3;
+  string text = 4;
+  string created_at = 5;
+}
+
+message MessageList {
+  repeated Message messages = 1;
+}
+
+message SendMessage {
+  int64 peer_id = 1;
+  string text = 2;
+}
+
+message AudioTrack {
+  int64 id = 1;
+  int64 media_id = 2;
+  string artist = 3;
+  string title = 4;
+  int32 duration_ms = 5;
+  int64 owner_user_id = 6;
+  string src = 7;
+}
+
+message AudioList {
+  repeated AudioTrack tracks = 1;
+}
+
+message Photo {
+  int64 id = 1;
+  int64 album_id = 2;
+  int64 owner_user_id = 3;
+  string mime = 4;
+  int64 size_bytes = 5;
+  optional int32 width = 6;
+  optional int32 height = 7;
+  optional string original_filename = 8;
+  string url = 9;
+}
+
+message Album {
+  int64 id = 1;
+  string title = 2;
+  optional string description = 3;
+  int64 owner_user_id = 4;
+  string created_at = 5;
+  int64 photo_count = 6;
+  optional string cover_url = 7;
+  repeated Photo photos = 8;
+}
+
+message AlbumList {
+  repeated Album albums = 1;
+}
+
+message CreateAlbum {
+  string title = 1;
+  optional string description = 2;
+}
+
+message Video {
+  int64 id = 1;
+  optional int64 media_id = 2;
+  string title = 3;
+  optional string description = 4;
+  string status = 5;
+  int64 owner_user_id = 6;
+  optional string src = 7;
+}
+
+message VideoList {
+  repeated Video videos = 1;
+}
+
+message Group {
+  int64 id = 1;
+  string slug = 2;
+  string name = 3;
+  optional string about = 4;
+  string kind = 5;
+  int64 owner_id = 6;
+  string created_at = 7;
+}
+
+message GroupList {
+  repeated Group groups = 1;
+}
+
+message Notification {
+  int64 id = 1;
+  string kind = 2;
+  optional int64 actor_id = 3;
+  optional string entity_type = 4;
+  optional int64 entity_id = 5;
+  string payload_json = 6;
+  optional string read_at = 7;
+  string created_at = 8;
+}
+
+message NotificationList {
+  repeated Notification notifications = 1;
+}
+
+message SocketEvent {
+  string type = 1;
+  int64 ts = 2;
+  string payload = 3;
+}
+
+// AboutInstance.latte
+message PopularGroup {
+  int64 id = 1;
+  string name = 2;
+  int64 members = 3;
+}
+
+message InstanceAbout {
+  int64 users = 1;
+  int64 online_users = 2;
+  int64 active_users = 3;
+  int64 groups = 4;
+  int64 wall_posts = 5;
+  repeated PopularGroup popular_groups = 6;
+}

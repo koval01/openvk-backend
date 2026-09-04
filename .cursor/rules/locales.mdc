@@ -1,0 +1,8 @@
+---
+description: Site UI language lives in the frontend OpenVK catalogs
+alwaysApply: true
+---
+
+# Locales
+
+User-visible site chrome is localized in the frontend from [OpenVK `locales`](https://github.com/OpenVK/openvk/tree/master/locales). Russian is the default and the fallback. Do not add a parallel backend string catalog for HTML pages. API error messages may stay English until a later pass.

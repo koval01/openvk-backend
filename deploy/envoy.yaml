@@ -1,0 +1,105 @@
+admin:
+  address:
+    socket_address:
+      address: 127.0.0.1
+      port_value: 9901
+
+static_resources:
+  listeners:
+    - name: ingress
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: 8080
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress
+                codec_type: AUTO
+                upgrade_configs:
+                  - upgrade_type: websocket
+                route_config:
+                  name: openvk
+                  virtual_hosts:
+                    - name: openvk
+                      domains: ["*"]
+                      routes:
+                        - match:
+                            prefix: /api
+                          route:
+                            cluster: api
+                            timeout: 120s
+                        - match:
+                            prefix: /health
+                          route:
+                            cluster: api
+                            timeout: 5s
+                        - match:
+                            prefix: /ready
+                          route:
+                            cluster: api
+                            timeout: 5s
+                        - match:
+                            prefix: /ws
+                          route:
+                            cluster: api
+                            timeout: 0s
+                        - match:
+                            prefix: /media/
+                          route:
+                            cluster: media
+                            timeout: 30s
+                        - match:
+                            prefix: /
+                          route:
+                            cluster: web
+                            timeout: 30s
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: api
+      connect_timeout: 2s
+      type: STRICT_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: api
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: api
+                      port_value: 8080
+    - name: media
+      connect_timeout: 2s
+      type: STRICT_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: media
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: media
+                      port_value: 80
+    - name: web
+      connect_timeout: 2s
+      type: STRICT_DNS
+      dns_lookup_family: V4_ONLY
+      lb_policy: ROUND_ROBIN
+      load_assignment:
+        cluster_name: web
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: web
+                      port_value: 80

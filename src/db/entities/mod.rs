@@ -1,0 +1,33 @@
+#![allow(dead_code)]
+
+pub mod album;
+pub mod album_photo;
+pub mod audio;
+pub mod audio_library;
+pub mod conversation;
+pub mod conversation_key;
+pub mod conversation_member;
+pub mod email_outbox;
+pub mod email_verification_token;
+pub mod feed_event;
+pub mod follow;
+pub mod friend_request;
+pub mod friendship;
+pub mod group;
+pub mod group_member;
+pub mod group_topic;
+pub mod group_topic_post;
+pub mod media_object;
+pub mod message;
+pub mod message_receipt;
+pub mod notification;
+pub mod password_reset_token;
+pub mod photo_tag;
+pub mod playlist;
+pub mod playlist_track;
+pub mod privacy_setting;
+pub mod profile;
+pub mod refresh_token;
+pub mod user;
+pub mod video;
+pub mod wall_post;
